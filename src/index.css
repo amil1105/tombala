@@ -1,0 +1,90 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --primary-color: #8a7bff;
+  --secondary-color: #6c5dd3;
+  --primary-hover: #5a4cbe;
+  --background-dark: #0f1123;
+  --background-medium: #1a1c37;
+  --background-light: #252749;
+  --background-lighter: #3a3c6e;
+  --text-light: #FFFFFF;
+  --text-secondary: #a8a8b3;
+  --text-tertiary: #65657b;
+  --border-color: #2a2d4a;
+  --success-color: #48BB78;
+  --warning-color: #F6AD55;
+  --error-color: #F56565;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--background-dark);
+  color: var(--text-light);
+  line-height: 1.6;
+}
+
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: color 0.3s;
+}
+
+a:hover {
+  color: var(--secondary-color);
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+  font-family: inherit;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+.card {
+  background: var(--background-light);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.gradient-text {
+  background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: bold;
+}
+
+.rounded-button {
+  border-radius: 8px;
+}
+
+.purple-gradient {
+  background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: 1fr 3fr 1fr;
+  min-height: 100vh;
+} 

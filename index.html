@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/tombala/" />
+    <meta name="theme-color" content="#1a237e" />
+    <meta name="description" content="Tombala - Çok oyunculu çevrimiçi tombala oyunu" />
+    <meta name="keywords" content="tombala, online, bingo, multiplayer, oyun" />
+    <meta name="author" content="Game Center" />
+    <link rel="icon" type="image/png" href="/tombala/favicon.png" />
+    <title>Tombala Oyunu</title>
+    <script>
+      // URL parametrelerini global değişkene dönüştür
+      window.tombalaParams = {};
+      const urlParams = new URLSearchParams(window.location.search);
+      
+      // Tüm URL parametrelerini tombalaParams'a ekle
+      for (const [key, value] of urlParams) {
+        window.tombalaParams[key] = value;
+      }
+      
+      // Debug için konsola yazdır
+      console.log('Tombala Parametreleri:', window.tombalaParams);
+      
+      // Özellikle oyuncu ve lobi bilgilerini konsola yazdır
+      console.log('Lobi ID:', window.tombalaParams.lobbyId);
+      console.log('Oyuncu ID:', window.tombalaParams.playerId);
+      console.log('Lobi Adı:', window.tombalaParams.lobbyName);
+      
+      // LocalStorage'dan tombala bilgilerini al
+      try {
+        const storedPlayerId = localStorage.getItem('tombala_playerId');
+        const storedLobbyId = localStorage.getItem('tombala_lobbyId');
+        const storedLobbyCode = localStorage.getItem('tombala_lobbyCode');
+        const storedLobbyName = localStorage.getItem('tombala_lobbyName');
+        
+        // URL'den gelen değerleri yoksa localStorage'dan kullan
+        if (!window.tombalaParams.playerId && storedPlayerId) {
+          window.tombalaParams.playerId = storedPlayerId;
+        }
+        
+        if (!window.tombalaParams.lobbyId && (storedLobbyId || storedLobbyCode)) {
+          window.tombalaParams.lobbyId = storedLobbyId || storedLobbyCode;
+        }
+        
+        if (!window.tombalaParams.lobbyName && storedLobbyName) {
+          window.tombalaParams.lobbyName = storedLobbyName;
+        }
+        
+        console.log('LocalStorage değerleri eklendi. Güncel parametreler:', window.tombalaParams);
+      } catch (e) {
+        console.warn('LocalStorage erişim hatası:', e);
+      }
+      
+      // Ana uygulamadan gelen postMessage olaylarını dinle
+      window.addEventListener('message', function(event) {
+        // Güvenlik kontrolü - sadece aynı origin'den gelen mesajları kabul et
+        if (event.origin !== window.location.origin) {
+          console.warn('Farklı kökenden gelen mesaj reddedildi:', event.origin);
+          return;
+        }
+        
+        // Gelen veriyi kontrol et ve işle
+        const data = event.data;
+        if (data && data.type === 'LOBBY_DATA' && data.lobbyId) {
+          console.log('postMessage ile alınan lobi verisi:', data);
+          
+          // tombalaParams'ı güncelle
+          window.tombalaParams.lobbyId = data.lobbyId;
+          if (data.playerId) window.tombalaParams.playerId = data.playerId;
+          if (data.lobbyName) window.tombalaParams.lobbyName = data.lobbyName;
+          
+          console.log('Güncellenen tombalaParams:', window.tombalaParams);
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/index.jsx"></script>
+  </body>
+</html> 

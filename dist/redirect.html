@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tombala - Yönlendiriliyor</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a237e 0%, #311b92 100%);
+      height: 100vh;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      background-color: rgba(0, 0, 0, 0.2);
+      border-radius: 1rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(10px);
+    }
+    .loader {
+      border: 5px solid rgba(255, 255, 255, 0.1);
+      border-top: 5px solid #7c4dff;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .title {
+      margin-bottom: 1rem;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    .message {
+      margin-bottom: 1rem;
+      opacity: 0.9;
+    }
+    .link {
+      color: #bb86fc;
+      text-decoration: none;
+    }
+    .link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="loader"></div>
+    <h1 class="title">Tombala Lobisine Yönlendiriliyor</h1>
+    <p class="message">Lütfen bekleyin, tombala oyun sayfasına yönlendiriliyorsunuz...</p>
+    <p>Otomatik yönlendirme çalışmazsa, <a href="#" id="redirect-link" class="link">buraya tıklayın</a>.</p>
+  </div>
+
+  <script>
+    // URL'den lobi ID'sini ve diğer parametreleri al
+    function getLobbyIdFromUrl() {
+      // URL'i parçalara ayır
+      const pathParts = window.location.pathname.split('/').filter(Boolean);
+      let lobbyId = '';
+      
+      // URL formatını kontrol et: /direct-tombala/LOBBYID veya /LOBBYID
+      if (pathParts.length > 0) {
+        if (pathParts[0] === 'direct-tombala' && pathParts.length > 1) {
+          lobbyId = pathParts[1];
+        } else {
+          lobbyId = pathParts[0];
+        }
+      }
+      
+      console.log('URL yolundan çıkarılan lobi ID:', lobbyId);
+      return lobbyId;
+    }
+    
+    // Query parametrelerini al
+    function getQueryParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        lobbyId: params.get('lobbyId') || params.get('code') || '',
+        playerId: params.get('playerId') || '',
+        lobbyName: params.get('lobbyName') || ''
+      };
+    }
+    
+    // Yönlendirme işlemi
+    function redirectToLobby() {
+      // Parametreleri al
+      const urlParams = getQueryParams();
+      const pathLobbyId = getLobbyIdFromUrl();
+      
+      // Lobi ID'yi belirle (öncelik: URL parametresi > URL yolu)
+      const finalLobbyId = urlParams.lobbyId || pathLobbyId;
+      
+      if (!finalLobbyId) {
+        console.error('Lobi ID bulunamadı, ana sayfaya yönlendiriliyor');
+        window.location.href = '/tombala/';
+        return;
+      }
+      
+      // Parametreleri kaydet
+      localStorage.setItem('tombala_lobbyId', finalLobbyId);
+      if (urlParams.playerId) {
+        localStorage.setItem('tombala_playerId', urlParams.playerId);
+      }
+      if (urlParams.lobbyName) {
+        localStorage.setItem('tombala_lobbyName', urlParams.lobbyName);
+      }
+      
+      // Oyun sayfasına yönlendir (doğru router yapısıyla)
+      const gameUrl = `/tombala/game/${finalLobbyId}${window.location.search}`;
+      console.log('Yönlendirme:', gameUrl);
+      
+      // Redirect bağlantısını güncelle
+      document.getElementById('redirect-link').href = gameUrl;
+      
+      // Yönlendirme yap
+      setTimeout(() => {
+        window.location.href = gameUrl;
+      }, 1500);
+    }
+    
+    // Sayfa yüklendiğinde yönlendirme işlemini başlat
+    window.addEventListener('DOMContentLoaded', redirectToLobby);
+  </script>
+</body>
+</html> 

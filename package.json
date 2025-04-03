@@ -1,19 +1,31 @@
 {
-  "name": "game-center-tombala",
+  "name": "@tombala/game",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/material": "^5.17.1",
+    "@mui/system": "^7.0.1",
+    "@tombala/common": "^1.0.0",
+    "axios": "^1.6.7",
+    "events": "^3.3.0",
+    "framer-motion": "^12.6.2",
+    "notistack": "^3.0.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-icons": "^5.5.0",
+    "react-router-dom": "^6.22.2",
+    "socket.io-client": "^4.8.1",
+    "styled-components": "^6.1.0"
+  },
   "scripts": {
-    "dev": "lerna run dev --stream",
-    "build": "lerna run build",
-    "clean": "lerna clean",
-    "bootstrap": "lerna bootstrap",
-    "start": "lerna run start --stream",
-    "test": "lerna run test --stream"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "devDependencies": {
-    "lerna": "^8.0.2"
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.1.4"
   }
-} 
+}
