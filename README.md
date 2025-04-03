@@ -1,61 +1,83 @@
-# Game Center Tombala
+# Tombala Game Platform
 
-Bu proje, Oyun Merkezi platformu için geliştirilen Tombala oyununu içermektedir. Lerna monorepo yapısı kullanılarak oluşturulmuştur.
+This project offers a modern and interactive platform where users can play Tombala (Turkish Bingo) online. It is developed using Vite, React, Node.js, and Express technologies.
 
-## Proje Yapısı
+## Technology Stack
+
+- **Frontend:** Vite, React (v18), React Router (v6), Material UI
+- **Backend:** Node.js (v22), Express
+- **Project Structure:** Lerna monorepo
+
+## Project Structure
 
 ```
-game-center-tombala/
+tombala/
 ├── packages/
-│   ├── common/ (Ortak utilities ve tipler)
-│   └── game/ (Tombala oyun uygulaması)
+│   ├── client/ (React user interface)
+│   ├── server/ (Express API and game logic)
+│   └── common/ (Shared types and utility functions)
 ├── lerna.json
 └── package.json
 ```
 
-## Kurulum
+## Features
 
-Bu projeyi kurmak için aşağıdaki adımları izleyin:
+- Multiplayer support
+- Real-time game updates
+- User accounts and profiles
+- Game statistics and leaderboard
+- Mobile-responsive interface
+
+## Installation
+
+Follow these steps to set up the project:
 
 ```bash
-# Depoyu klonla
-git clone https://github.com/yourusername/game-center-tombala.git
+# Clone the repository
+git clone https://github.com/username/tombala.git
 
-# Proje dizinine gir
-cd game-center-tombala
+# Navigate to project directory
+cd tombala
 
-# Bağımlılıkları yükle
+# Install dependencies
 npm install
 
-# Lerna bootstrap ile paketleri kur
-npm run bootstrap
+# Bootstrap packages with Lerna
+npx lerna bootstrap
 
-# Geliştirme modunda başlat
+# Start in development mode
 npm run dev
 ```
 
-## Paketler
+## Development
 
-### @tombala/common
-
-Ortak tipler, API istekleri ve yardımcı fonksiyonlar için kullanılan paket.
-
-### @tombala/game
-
-Tombala oyununun kullanıcı arayüzü ve oyun mantığını içeren paket.
-
-## Geliştirme
-
-Geliştirme modunda projeyi başlatmak için:
+To start the project in development mode:
 
 ```bash
 npm run dev
 ```
 
-## Dağıtım (Build)
+This command launches both client and server applications in parallel.
 
-Projeyi derlemek (build) için:
+## Core Libraries Used
+
+- **Material UI:** Modern and responsive user interface components
+- **React Router:** Page routing and navigation
+- **Express:** API endpoints and game server
+- **Socket.io:** Real-time communication
+
+## Deployment (Build)
+
+To build the project for production:
 
 ```bash
 npm run build
 ```
+
+## Contributing
+
+1. Fork this repository
+2. Create a feature branch (`git checkout -b new-feature`)
+3. Commit your changes (`git commit -m 'Add new feature'`)
+4. Push to the branch (`git push origin new-feature`)
+5. Open a Pull Request
