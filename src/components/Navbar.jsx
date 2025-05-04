@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { isConnected } from '@tombala/common';
+import { Typography } from '@mui/material';
 
 const NavbarContainer = styled.nav`
   background-color: ${({ theme }) => theme.navBg};
@@ -130,7 +131,7 @@ function Navbar() {
   return (
     <NavbarContainer>
       <Logo href="/">
-        <span>●</span> TOMBALA
+        <Typography variant="span" component="span" sx={{ display: 'inline-block', marginRight: '4px' }}>●</Typography> TOMBALA
       </Logo>
       
       <NavLinks>

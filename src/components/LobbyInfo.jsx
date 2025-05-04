@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import { Box, Typography, List, ListItem } from '@mui/material';
 import { 
   initializeSocket, 
   joinLobby, 
@@ -313,7 +314,7 @@ function LobbyInfo({ lobbyData }) {
   };
 
   if (!lobbyData) {
-    return <div>Lobi bilgileri yükleniyor...</div>;
+    return <Box>Lobi bilgileri yükleniyor...</Box>;
   }
 
   return (
@@ -334,48 +335,48 @@ function LobbyInfo({ lobbyData }) {
         
         <LobbyDetails>
           <DetailItem>
-            <h3>Oyun</h3>
-            <p>Tombala</p>
+            <Typography variant="h6" component="h3">Oyun</Typography>
+            <Typography variant="body1" component="p">Tombala</Typography>
           </DetailItem>
           
           <DetailItem>
-            <h3>Oyuncu Limiti</h3>
-            <p>{players.length} / {lobbyData.maxPlayers}</p>
+            <Typography variant="h6" component="h3">Oyuncu Limiti</Typography>
+            <Typography variant="body1" component="p">{players.length} / {lobbyData.maxPlayers}</Typography>
           </DetailItem>
           
           <DetailItem>
-            <h3>Lobi Kodu</h3>
-            <p>
+            <Typography variant="h6" component="h3">Lobi Kodu</Typography>
+            <Typography variant="body1" component="p">
               {lobbyData.lobbyCode}
               <CopyButton onClick={copyInviteLink}>
                 {copySuccess ? 'Kopyalandı!' : 'Kopyala'}
               </CopyButton>
-            </p>
+            </Typography>
           </DetailItem>
           
           {lobbyData.betAmount > 0 && (
             <DetailItem>
-              <h3>Bahis Miktarı</h3>
-              <p>{lobbyData.betAmount} Jeton</p>
+              <Typography variant="h6" component="h3">Bahis Miktarı</Typography>
+              <Typography variant="body1" component="p">{lobbyData.betAmount} Jeton</Typography>
             </DetailItem>
           )}
         </LobbyDetails>
         
         <PlayerList>
-          <h2>Oyuncular</h2>
-          <ul>
+          <Typography variant="h5" component="h2">Oyuncular</Typography>
+          <List>
             {players.map(player => (
-              <PlayerCard key={player.id}>
-                <div className="avatar">
+              <ListItem key={player.id} component={PlayerCard} sx={{ display: 'block', padding: 0 }}>
+                <Box className="avatar">
                   {player.username.charAt(0)}
-                </div>
-                <div className="info">
-                  <div className="name">{player.username}</div>
-                  {player.isHost && <div className="tag">Host</div>}
-                </div>
-              </PlayerCard>
+                </Box>
+                <Box className="info">
+                  <Box className="name">{player.username}</Box>
+                  {player.isHost && <Box className="tag">Host</Box>}
+                </Box>
+              </ListItem>
             ))}
-          </ul>
+          </List>
         </PlayerList>
         
         <ButtonsContainer>

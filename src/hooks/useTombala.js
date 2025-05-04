@@ -38,7 +38,9 @@ const SOCKET_EVENTS = {
   GAME_STATUS_CHANGED: 'game_status_changed',
   PLAYERS_UPDATED: 'players_updated',
   WINNER_ANNOUNCED: 'winner_announced',
-  ERROR: 'error'
+  ERROR: 'error',
+  CINKO1_CLAIMED: 'cinko1_claimed',
+  CINKO2_CLAIMED: 'cinko2_claimed'
 };
 
 // Socket bağlantı URL'sini düzelt
@@ -108,7 +110,6 @@ export const useTombala = () => {
   // Demo mod ayarını temizle
   try {
     localStorage.removeItem('tombala_demo_mode');
-    console.log('useTombala: Demo mod ayarı temizlendi');
   } catch (error) {
     console.error('Demo mod ayarı temizlenirken hata:', error);
   }
@@ -116,7 +117,7 @@ export const useTombala = () => {
   // Oyuncu kimliği bilgilerini başta tanımla
   const playerId = localStorage.getItem('playerId') || localStorage.getItem('tombala_playerId') || localStorage.getItem(STORAGE_KEYS.PLAYERID) || `player_${Date.now()}`;
   const playerName = localStorage.getItem('playerName') || localStorage.getItem(STORAGE_KEYS.PLAYERNAME) || 'Misafir Oyuncu';
-  
+
   // Oyun durumu state'leri
   const [gameStatus, setGameStatus] = useState('waiting'); // waiting, playing, finished
   const [playerCards, setPlayerCards] = useState([]);
@@ -144,7 +145,7 @@ export const useTombala = () => {
   const [apiError, setApiError] = useState(null);
   const [lobbyId, setLobbyId] = useState(null);
   const [isHost, setIsHost] = useState(false);
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState([]); 
   const [players, setPlayers] = useState([]); 
   const [messages, setMessages] = useState([]); 
   const [isPaused, setIsPaused] = useState(false);
@@ -507,12 +508,12 @@ export const useTombala = () => {
         playerId,
         count: 3 // 3 kart oluştur
       });
-    } else {
+      } else {
       // Offline ise veya socket bağlantısı yoksa yerel olarak oluştur
       console.log('useTombala: Kart oluşturma - offline/yerel mod, socket bağlı değil');
-      const generatedCards = generateTombalaCards(3);
+          const generatedCards = generateTombalaCards(3);
       console.log('useTombala: Yerel oluşturulan kartlar:', generatedCards);
-      setPlayerCards(generatedCards);
+          setPlayerCards(generatedCards);
       
       // Önceki çekilen sayıları local storage'dan almaya çalış
       try {
@@ -585,7 +586,7 @@ export const useTombala = () => {
     // URL'den lobi ID'sini al
     let finalLobbyId = lobbyId;
     
-    if (!finalLobbyId) {
+      if (!finalLobbyId) {
       // URL'den lobi ID'sini çıkarmaya çalış
       const path = window.location.pathname;
       console.log('useTombala: LobbyId URL path\'inden alındı:', path);
@@ -629,10 +630,10 @@ export const useTombala = () => {
             })
           : null;
       
-        if (socketConn) {
-          setSocketInstance(socketConn);
+      if (socketConn) {
+        setSocketInstance(socketConn);
           reconnectAttempts = 0; // Başarılı bağlantı durumunda sıfırla
-          console.log('useTombala: Socket bağlantısı başarıyla kuruldu');
+        console.log('useTombala: Socket bağlantısı başarıyla kuruldu');
           setIsOnline(true);
           
           // Bağlantı kesilme durumunu dinle
@@ -739,9 +740,12 @@ export const useTombala = () => {
   // Bağlantı kurulduktan sonra lobi bilgilerini al ve katıl
   useEffect(() => {
     // Socket yoksa veya lobbyId yoksa işlem yapma
-    if (!socketInstance || !lobbyId) return;
-    
-    console.log('useTombala: Socket ve lobbyId hazır, lobiye katılma isteği gönderiliyor');
+    if (!socketInstance || !lobbyId) {
+        console.log('useTombala: Socket veya Lobi ID eksik, olay dinleyicileri eklenmiyor.');
+      return;
+    }
+
+    console.log('useTombala: Socket ve lobbyId hazır, olay dinleyicileri ekleniyor', { socketId: socketInstance.id });
 
     // playerId değerini kontrol et ve gerekirse güncelle
     let currentPlayerId = playerId;
@@ -750,252 +754,239 @@ export const useTombala = () => {
       // Oyuncu kimliğini kaydet
       localStorage.setItem('tombala_playerId', currentPlayerId);
       localStorage.setItem('playerId', currentPlayerId);
+      console.log('useTombala: Yeni oyuncu ID oluşturuldu/yüklendi:', currentPlayerId);
     }
-    
-    // Lobiye katılma isteği gönder
-    socketInstance.emit(SOCKET_EVENTS.JOIN_LOBBY, {
-      lobbyId,
-      playerId: currentPlayerId,
-      playerName
-    });
-    
-    // Lobi olaylarını dinle
-    
+
+    // Lobiye katılma isteği gönder (eğer zaten bağlı değilse)
+    // Bu kısım ilk bağlantı useEffect'ine taşınabilir, ancak burada da olabilir.
+    if (!socketInstance.listeners(SOCKET_EVENTS.LOBBY_JOINED).length) {
+      console.log('useTombala: Lobiye katılma isteği gönderiliyor (useEffect içinden)');
+      socketInstance.emit(SOCKET_EVENTS.JOIN_LOBBY, {
+        lobbyId,
+        playerId: currentPlayerId,
+        playerName
+      });
+    }
+
+    // --- Olay Dinleyicileri --- 
+
     // Lobiye katılma yanıtı
-    socketInstance.on(SOCKET_EVENTS.LOBBY_JOINED, (data) => {
+    const handleLobbyJoined = (data) => {
       console.log('useTombala: Lobiye katılma yanıtı alındı:', data);
-      
-      // Host durumunu güncelle
       setIsHost(data.isHost);
-      
-      // Oyuncuları güncelle
       if (data.players && Array.isArray(data.players)) {
-        console.log('useTombala: Güncellenmiş oyuncu listesi:', data.players.length, 'oyuncu');
-        // Oyuncu listesindeki her bir oyuncuyu log'a yazdır
-        data.players.forEach(player => {
-          console.log(`Oyuncu: ${player.name}, ID: ${player.id}, Host: ${player.isHost}, Bot: ${player.isBot}`);
-        });
-        
         setPlayers(data.players);
       }
-      
-      // Çekilen sayıları güncelle
       if (data.drawnNumbers && Array.isArray(data.drawnNumbers)) {
         setDrawnNumbers(data.drawnNumbers);
       }
-      
-      // Oyun durumunu güncelle
       if (data.gameStatus) {
         setGameStatus(data.gameStatus);
       }
-      
-      // Son çekilen sayıyı güncelle
       if (data.currentNumber) {
         setCurrentNumber(data.currentNumber);
       }
-      
-      // Bildirim ekle
-      setNotifications(prev => [
-        {
-          id: Date.now(),
-          message: data.message || 'Lobiye katıldınız',
-          type: 'success',
-          timestamp: Date.now()
-        },
-        ...prev
-      ]);
-    });
-    
+      addNotification({ message: data.message || 'Lobiye katıldınız', type: 'success' });
+    };
+    socketInstance.on(SOCKET_EVENTS.LOBBY_JOINED, handleLobbyJoined);
+
     // Oyuncu katılım olayı
-    socketInstance.on(SOCKET_EVENTS.PLAYER_JOINED, (data) => {
+    const handlePlayerJoined = (data) => {
       console.log('useTombala: Yeni oyuncu katıldı:', data);
-      
-      // Oyuncuları güncelle
       if (data.players && Array.isArray(data.players)) {
         setPlayers(data.players);
       }
-      
-      // Bildirim ekle
-      setNotifications(prev => [
-        {
-          id: Date.now(),
-          message: `${data.playerName || 'Yeni oyuncu'} lobiye katıldı`,
-          type: 'info',
-          timestamp: Date.now()
-        },
-        ...prev
-      ]);
-    });
-    
+      addNotification({ message: `${data.playerName || 'Yeni oyuncu'} lobiye katıldı`, type: 'info' });
+    };
+    socketInstance.on(SOCKET_EVENTS.PLAYER_JOINED, handlePlayerJoined);
+
     // Oyuncu ayrılma olayı
-    socketInstance.on(SOCKET_EVENTS.PLAYER_LEFT, (data) => {
+    const handlePlayerLeft = (data) => {
       console.log('useTombala: Oyuncu ayrıldı:', data);
-      
-      // Oyuncuları güncelle
       if (data.players && Array.isArray(data.players)) {
         setPlayers(data.players);
       }
-      
-      // Host değişikliği varsa güncelle
       if (data.newHost) {
         const isCurrentPlayerNewHost = data.newHost === currentPlayerId;
         setIsHost(isCurrentPlayerNewHost);
-        
         if (isCurrentPlayerNewHost) {
-          // Bildirim ekle
-          setNotifications(prev => [
-            {
-              id: Date.now(),
-              message: 'Artık sen bu lobinin hostu oldun',
-              type: 'success',
-              timestamp: Date.now()
-            },
-            ...prev
-          ]);
+          addNotification({ message: 'Artık sen bu lobinin hostu oldun', type: 'success' });
         }
       }
-    });
-    
-    // Oyuncu durum güncellemesi olayı
-    socketInstance.on(SOCKET_EVENTS.PLAYER_STATUS_UPDATE, (data) => {
-      console.log('useTombala: Oyuncu durum güncellemesi:', data);
-      
-      // Oyuncuları güncelle
-      if (data.players && Array.isArray(data.players)) {
-        setPlayers(data.players);
-      }
-    });
-    
-    // Lobi bilgileri güncellemesi
-    socketInstance.on(SOCKET_EVENTS.LOBBY_INFO, (data) => {
-      console.log('useTombala: Lobi bilgileri güncellendi:', data);
-      
-      // Oyuncuları güncelle
-      if (data.players && Array.isArray(data.players)) {
-        console.log('useTombala: Lobi bilgilerinden gelen oyuncular:', data.players.length, 'oyuncu');
-        // Oyuncu listesindeki her bir oyuncuyu log'a yazdır
-        data.players.forEach(player => {
-          console.log(`Oyuncu: ${player.name}, ID: ${player.id}, Host: ${player.isHost}, Bot: ${player.isBot || false}`);
-        });
-        
-        setPlayers(data.players);
-        
-        // Eğer oyuncu listesinde kendimiz varsak ve host isek, host durumunu güncelle
-        const currentPlayer = data.players.find(player => player.id === currentPlayerId);
-        if (currentPlayer && currentPlayer.isHost && !isHost) {
-          console.log('useTombala: Lobi bilgilerinden host durumu güncellendi');
-          setIsHost(true);
-        }
-      }
-      
-      // Oyun durumunu güncelle
-      if (data.status) {
-        setGameStatus(data.status);
-      }
-    });
-    
+      addNotification({ message: `${data.playerName || 'Bir oyuncu'} lobiden ayrıldı`, type: 'warning' });
+    };
+    socketInstance.on(SOCKET_EVENTS.PLAYER_LEFT, handlePlayerLeft);
+
+    // Oyuncu durum güncellemesi olayı (Bu event backend'de tanımlı mı? Kontrol edilmeli)
+    // const handlePlayerStatusUpdate = (data) => {
+    //   console.log('useTombala: Oyuncu durum güncellemesi:', data);
+    //   if (data.players && Array.isArray(data.players)) {
+    //     setPlayers(data.players);
+    //   }
+    // };
+    // socketInstance.on(SOCKET_EVENTS.PLAYER_STATUS_UPDATE, handlePlayerStatusUpdate); // Eğer backend destekliyorsa etkinleştir
+
+    // Tombala kazanma olayı (Bu olayı dinleyen kod zaten yukarıda var, burada tekrar eklemeye gerek yok)
+    // const handleTombalaClaimed = (data) => { ... };
+    // socketInstance.on(SOCKET_EVENTS.TOMBALA_CLAIMED, handleTombalaClaimed);
+
+    // Lobi bilgileri güncellemesi (Bu event backend'de tanımlı mı? Kontrol edilmeli)
+    // const handleLobbyInfo = (data) => { ... };
+    // socketInstance.on(SOCKET_EVENTS.LOBBY_INFO, handleLobbyInfo); // Eğer backend destekliyorsa etkinleştir
+
     // Sayı çekilme olayı
-    socketInstance.on(SOCKET_EVENTS.NUMBER_DRAWN, (data) => {
+    const handleNumberDrawn = (data) => {
       console.log('useTombala: Yeni sayı çekildi:', data);
-      
-      // Sayı çekme durumunu sıfırla
       setDrawingNumber(false);
-      
-      // Çekilen sayıyı güncelle
       if (data.number) {
         setCurrentNumber(data.number);
-        
-        // Sayı başarıyla çekildi bildirimi
-        addNotification({
-          type: 'success',
-          message: `Yeni sayı çekildi: ${data.number}`
-        });
+        addNotification({ type: 'info', message: `Yeni sayı çekildi: ${data.number}` }); // Bilgi mesajı olarak değiştirildi
       }
-      
-      // Çekilen sayılar listesini güncelle
       if (data.drawnNumbers && Array.isArray(data.drawnNumbers)) {
         console.log(`useTombala: Çekilen sayılar güncellendi. Toplam: ${data.drawnNumbers.length}/90`);
-        console.log(`useTombala: Çekilen sayılar: [${data.drawnNumbers.join(', ')}]`);
-        
-        // Sunucudan gelen güncel listeyi kullan
         setDrawnNumbers([...data.drawnNumbers]);
-        
-        // Local Storage'a kaydet (sayfa yenilemesi durumunda kullanmak için)
         try {
           localStorage.setItem('tombala_drawn_numbers', JSON.stringify(data.drawnNumbers));
-          localStorage.setItem('tombala_current_number', data.number.toString());
+          if (data.number) localStorage.setItem('tombala_current_number', data.number.toString());
           localStorage.setItem('tombala_last_update', Date.now().toString());
         } catch (err) {
           console.error('useTombala: Local storage kayıt hatası:', err);
         }
-        
-        // Tüm sayılar çekildiyse oyunu bitir
         if (data.drawnNumbers.length >= 90) {
           console.log('useTombala: Tüm sayılar çekildi, oyun bitiyor');
-          
-          // Oyun durumunu güncelle
           setGameStatus('finished');
-          
-          // Bildirim ekle
-          addNotification({
-            type: 'info',
-            message: 'Tüm sayılar çekildi, oyun bitti!'
-          });
-        }
-        
-        // Kart kontrolü yap - işaretli sayıları güncelle
-        if (playerCards && playerCards.length > 0) {
-          console.log('useTombala: Sayılar güncellendi, kartlar kontrol ediliyor');
-          const myCard = playerCards[0];
-          if (myCard && myCard.numbers) {
-            const allCardNumbers = myCard.numbers.flat().filter(num => num !== null);
-            const markedNumbers = allCardNumbers.filter(num => data.drawnNumbers.includes(num));
-            console.log(`useTombala: İşaretli sayı kontrolü: ${markedNumbers.length}/15`);
-          }
+          addNotification({ type: 'info', message: 'Tüm sayılar çekildi, oyun bitti!' });
         }
       } else {
         console.warn('useTombala: Sunucudan gelen çekilen sayılar dizisi bulunamadı veya geçerli değil');
       }
-    });
-    
-    // Hata olayını dinle (özellikle sayı çekme hatası için)
-    socketInstance.on('error', (error) => {
+    };
+    socketInstance.on(SOCKET_EVENTS.NUMBER_DRAWN, handleNumberDrawn);
+
+    // Hata olayını dinle
+    const handleError = (error) => {
       console.error('useTombala: Socket hatası:', error);
-      
-      // Sayı çekme durumunu sıfırla (hata durumunda)
       setDrawingNumber(false);
-      
-      // Kullanıcıya bildir
-      addNotification({
-        type: 'error',
-        message: error.message || 'Bir hata oluştu'
-      });
-    });
-    
+      addNotification({ type: 'error', message: error.message || 'Bir sunucu hatası oluştu' });
+    };
+    socketInstance.on(SOCKET_EVENTS.ERROR, handleError); // 'error' standard event
+
+    // Kartların oluşturulduğu olay
+    const handleCardsCreated = (data) => {
+      console.log('useTombala: Sunucudan kartlar alındı', data);
+      if (data.cards && Array.isArray(data.cards)) {
+        setPlayerCards(data.cards); 
+        addNotification({ type: 'success', message: 'Tombala kartlarınız oluşturuldu!' });
+      } else {
+        console.error('Sunucudan geçersiz kart verisi alındı');
+        addNotification({ type: 'error', message: 'Kartlar oluşturulamadı.' });
+      }
+    };
+    socketInstance.on(SOCKET_EVENTS.CARDS_CREATED, handleCardsCreated);
+
+    // Oyun Başlama olayı
+    const handleGameStart = (data) => {
+        console.log('useTombala: Oyun başladı (sunucu olayı):', data);
+        setGameStatus('playing');
+        setDrawnNumbers(data.drawnNumbers || []);
+        setCurrentNumber(data.currentNumber || null);
+        setWinners({ cinko1: null, cinko2: null, tombala: null }); // Kazananları sıfırla
+        setIsPaused(data.isPaused || false);
+        addNotification({ type: 'info', message: data.message || 'Oyun başladı!' });
+        // Oyun başladığında kartlar otomatik istenir veya oluşturulur
+        if (!playerCards || playerCards.length === 0) {
+            createPlayerCards(); 
+        }
+    };
+    socketInstance.on(SOCKET_EVENTS.GAME_START, handleGameStart);
+
+    // Oyun Durumu Değişikliği (Örn: Pause/Resume)
+    const handleGameStatusChanged = (data) => {
+        console.log('useTombala: Oyun durumu değişti:', data);
+        if(data.isPaused !== undefined) {
+            setIsPaused(data.isPaused);
+            addNotification({ type: 'warning', message: data.isPaused ? 'Oyun duraklatıldı.' : 'Oyun devam ediyor.' });
+        }
+        if(data.gameStatus) {
+            setGameStatus(data.gameStatus);
+        }
+    };
+    socketInstance.on(SOCKET_EVENTS.GAME_STATUS_CHANGED, handleGameStatusChanged);
+
+    // Yeni Mesaj olayı
+    const handleNewMessage = (data) => {
+        console.log('useTombala: Yeni mesaj alındı:', data);
+        setMessages(prev => [...prev, data]);
+    };
+    socketInstance.on(SOCKET_EVENTS.NEW_MESSAGE, handleNewMessage);
+
+    // Çinko 1 Kazanma olayı
+    const handleCinko1Claimed = (data) => {
+      console.log('useTombala: Çinko 1 yapıldı (olay dinleyici):', data);
+      setWinners(prev => ({ ...prev, cinko1: { playerId: data.playerId, playerName: data.playerName || 'Bilinmeyen', timestamp: data.timestamp || Date.now() } }));
+      addNotification({ type: 'success', message: `${data.playerName || 'Bilinmeyen'} 1. ÇİNKO yaptı!` });
+    };
+    socketInstance.on(SOCKET_EVENTS.CINKO1_CLAIMED, handleCinko1Claimed);
+
+    // Çinko 2 Kazanma olayı
+    const handleCinko2Claimed = (data) => {
+      console.log('useTombala: Çinko 2 yapıldı (olay dinleyici):', data);
+      setWinners(prev => ({ ...prev, cinko2: { playerId: data.playerId, playerName: data.playerName || 'Bilinmeyen', timestamp: data.timestamp || Date.now() } }));
+      addNotification({ type: 'success', message: `${data.playerName || 'Bilinmeyen'} 2. ÇİNKO yaptı!` });
+    };
+    socketInstance.on(SOCKET_EVENTS.CINKO2_CLAIMED, handleCinko2Claimed);
+
+    // Kazanan Anonsu (Tombala için)
+    const handleWinnerAnnounced = (data) => {
+        console.log('useTombala: Kazanan anons edildi (Tombala):', data);
+        // TOMBALA_CLAIMED zaten state güncelliyor, burada tekrar yapmaya gerek yok
+        // Sadece ek bildirim vs. gerekirse kullanılabilir.
+        // Kazanan ismi API'den alma mantığı TOMBALA_CLAIMED içinde zaten var.
+        if (data.playerId && !winners.tombala) { // Eğer TOMBALA_CLAIMED henüz işlememişse
+            setWinners(prev => ({
+                ...prev,
+                tombala: {
+                    playerId: data.playerId,
+                    playerName: data.playerName || 'Bilinmeyen Oyuncu',
+                    timestamp: data.timestamp || Date.now(),
+                    totalMarked: data.totalMarked || 15
+                }
+            }));
+            setGameStatus('finished');
+            addNotification({ type: 'success', message: `${data.playerName || 'Bilinmeyen'} TOMBALA yaptı! Oyun bitti.` });
+        }
+    };
+    socketInstance.on(SOCKET_EVENTS.WINNER_ANNOUNCED, handleWinnerAnnounced);
+
+
     // Temizleme işlevi
     return () => {
+      console.log('useTombala: Olay dinleyicileri temizleniyor', { socketId: socketInstance.id });
       // Socket olaylarını temizle
-      socketInstance.off(SOCKET_EVENTS.LOBBY_JOINED);
-      socketInstance.off(SOCKET_EVENTS.PLAYER_JOINED);
-      socketInstance.off(SOCKET_EVENTS.PLAYER_LEFT);
-      socketInstance.off(SOCKET_EVENTS.PLAYER_STATUS_UPDATE);
-      socketInstance.off(SOCKET_EVENTS.LOBBY_INFO);
-      socketInstance.off(SOCKET_EVENTS.NUMBER_DRAWN);
-      socketInstance.off(SOCKET_EVENTS.GAME_START);
-      socketInstance.off(SOCKET_EVENTS.GAME_END);
-      socketInstance.off(SOCKET_EVENTS.CINKO_CLAIMED);
-      socketInstance.off(SOCKET_EVENTS.TOMBALA_CLAIMED);
-      socketInstance.off(SOCKET_EVENTS.NEW_MESSAGE);
-      socketInstance.off(SOCKET_EVENTS.SYSTEM_MESSAGE);
-      
-      // Lobiden çık
-      socketInstance.emit(SOCKET_EVENTS.LEAVE_LOBBY, {
-        lobbyId,
-        playerId: currentPlayerId
-      });
+      socketInstance.off(SOCKET_EVENTS.LOBBY_JOINED, handleLobbyJoined);
+      socketInstance.off(SOCKET_EVENTS.PLAYER_JOINED, handlePlayerJoined);
+      socketInstance.off(SOCKET_EVENTS.PLAYER_LEFT, handlePlayerLeft);
+      // socketInstance.off(SOCKET_EVENTS.PLAYER_STATUS_UPDATE, handlePlayerStatusUpdate);
+      // socketInstance.off(SOCKET_EVENTS.LOBBY_INFO, handleLobbyInfo);
+      socketInstance.off(SOCKET_EVENTS.NUMBER_DRAWN, handleNumberDrawn);
+      socketInstance.off(SOCKET_EVENTS.GAME_START, handleGameStart);
+      // socketInstance.off(SOCKET_EVENTS.GAME_END); // GAME_END olayı tanımlı mı?
+      socketInstance.off(SOCKET_EVENTS.ERROR, handleError);
+      socketInstance.off(SOCKET_EVENTS.CARDS_CREATED, handleCardsCreated);
+      socketInstance.off(SOCKET_EVENTS.GAME_STATUS_CHANGED, handleGameStatusChanged);
+      socketInstance.off(SOCKET_EVENTS.NEW_MESSAGE, handleNewMessage);
+      socketInstance.off(SOCKET_EVENTS.CINKO1_CLAIMED, handleCinko1Claimed);
+      socketInstance.off(SOCKET_EVENTS.CINKO2_CLAIMED, handleCinko2Claimed);
+      socketInstance.off(SOCKET_EVENTS.WINNER_ANNOUNCED, handleWinnerAnnounced);
+
+      // Lobiden çıkma isteği burada olmamalı, komponent unmount olduğunda farklı bir yerde ele alınmalı
+      // socketInstance.emit(SOCKET_EVENTS.LEAVE_LOBBY, {
+      //   lobbyId,
+      //   playerId: currentPlayerId
+      // });
     };
-  }, [socketInstance, lobbyId]);
-  
+  }, [socketInstance, lobbyId, playerId, playerName, addNotification, createPlayerCards, playerCards]); // Bağımlılıklara dikkat!
+
   // Hata gösterme fonksiyonu
   const showError = useCallback((message) => {
     console.error(message);
@@ -1884,7 +1875,7 @@ export const useTombala = () => {
           setWinType('tombala');
           setGameStatus('finished');
           
-          // Kazananlar listesini güncelle
+          // Kazananlar listesini güncelle - varsayılan bilgilerle hemen güncelle
           setWinners(prev => ({
             ...prev,
             tombala: {
@@ -1894,6 +1885,8 @@ export const useTombala = () => {
               totalMarked: markedNumbers.length
             }
           }));
+          
+          setGameStatus('finished');
           
           // Sunucuya tombala talebini gönder
           if (socketInstance && socketInstance.connected && isOnline) {
@@ -1918,40 +1911,6 @@ export const useTombala = () => {
               type: 'success',
               message: 'Tombala! Tüm sayıları işaretlediniz!'
             });
-          } else if (!isOnline) {
-            // Çevrimdışı modda (demo mod) otomatik olarak kazananı belirle
-            console.log('Demo modda tombala yapıldı');
-            
-            // Bildirim ekle
-            addNotification({
-              type: 'success',
-              message: 'Tombala! Tüm sayıları işaretlediniz!'
-            });
-            
-            // Oyun sonucunu yerel olarak kaydet
-            const gameResult = {
-              lobbyId: lobbyId || 'demo',
-              playerId,
-              playerName,
-              gameStatus: 'finished',
-              winners: {
-                tombala: {
-                  playerId,
-                  playerName,
-                  timestamp: Date.now(),
-                  totalMarked: 15
-                }
-              },
-              winType: 'tombala',
-              completedAt: new Date().toISOString()
-            };
-            
-            // Oyun sonucunu kaydet
-            try {
-              localStorage.setItem('tombala_last_game', JSON.stringify(gameResult));
-            } catch (error) {
-              console.error('Oyun sonucu kaydedilemedi:', error);
-            }
           }
         }
       }
@@ -1959,83 +1918,6 @@ export const useTombala = () => {
       console.error('Kart kontrolü sırasında hata:', error);
     }
   }, [gameStatus, drawnNumbers, playerCards, playerId, playerName, isOnline, socketInstance, lobbyId, winners, addNotification, setWinType, setGameStatus, setWinners]);
-
-  // Socket olaylarını dinle (yeni sayı çekilmesi, oyun başlaması/bitmesi vb.)
-  useEffect(() => {
-    // Socket veya lobbyId yoksa işlem yapma
-    if (!socketInstance || !lobbyId) return;
-    
-    console.log('useTombala: Socket olayları dinleniyor', { 
-      socketID: socketInstance.id, 
-      isConnected: socketInstance?.connected || false 
-    });
-    
-    // Lobiye katılma sonucu
-    socketInstance.on(SOCKET_EVENTS.LOBBY_JOINED, (data) => {
-      console.log('useTombala: Lobiye katıldınız:', data);
-      
-      // gameStatus'u güncelle
-      if (data.gameStatus) {
-        setGameStatus(data.gameStatus);
-        
-        // Oyun durumunu local storage'a kaydet
-        try {
-          localStorage.setItem('tombala_game_status', data.gameStatus);
-        } catch (err) {
-          console.error('useTombala: Local storage\'a oyun durumu kaydedilemedi:', err);
-        }
-      }
-      
-      // Çekilen sayıları güncelle
-      if (data.drawnNumbers && Array.isArray(data.drawnNumbers)) {
-        setDrawnNumbers(data.drawnNumbers);
-        
-        // Son çekilen sayıyı güncelle
-        if (data.currentNumber) {
-          setCurrentNumber(data.currentNumber);
-        }
-        
-        // Çekilen sayıları local storage'a kaydet
-        try {
-          localStorage.setItem('tombala_drawn_numbers', JSON.stringify(data.drawnNumbers));
-          if (data.currentNumber) {
-            localStorage.setItem('tombala_current_number', data.currentNumber.toString());
-          }
-        } catch (err) {
-          console.error('useTombala: Local storage\'a sayılar kaydedilemedi:', err);
-        }
-      }
-      
-      // Oyuncuları güncelle
-      if (data.players && Array.isArray(data.players)) {
-        setPlayers(data.players);
-        
-        // Eğer oyuncu listesinde kendimiz varsak ve host isek, host durumunu güncelle
-        const currentPlayer = data.players.find(player => player.id === playerId);
-        if (currentPlayer && currentPlayer.isHost) {
-          setIsHost(true);
-        }
-      }
-      
-      // Bildirim ekle
-      setNotifications(prev => [
-        {
-          id: Date.now(),
-          message: data.message || 'Lobiye katıldınız',
-          type: 'success',
-          timestamp: Date.now()
-        },
-        ...prev
-      ]);
-    });
-    
-    // Temizleme işlevi
-    return () => {
-      if (socketInstance) {
-        socketInstance.off(SOCKET_EVENTS.LOBBY_JOINED);
-      }
-    };
-  }, [socketInstance, lobbyId, playerId]);
 
   // Hook'un dönüş değeri
   return {

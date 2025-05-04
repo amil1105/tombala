@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Box, Grid, Paper, Typography, Button, Badge, Chip, Divider, List, ListItem, ListItemText, Avatar, TextField, IconButton, CircularProgress, Container, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, ListItemAvatar } from '@mui/material';
+import { Box, Grid, Paper, Typography, Button, Badge, Chip, Divider, List, ListItem, ListItemText, Avatar, TextField, IconButton, CircularProgress, Container, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, ListItemAvatar, AppBar, Toolbar } from '@mui/material';
 import { styled } from '@mui/system';
 import SendIcon from '@mui/icons-material/Send';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
@@ -8,6 +8,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import PersonIcon from '@mui/icons-material/Person';
+import HomeIcon from '@mui/icons-material/Home';
 import { useTombala } from '../hooks/useTombala';
 import NumberBoard from './NumberBoard';
 import TombalaCard from './TombalaCard';
@@ -35,12 +36,13 @@ const StyledPaper = styled(Paper)({
   flexDirection: 'column'
 });
 
-const Header = styled(Box)({
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  marginBottom: '16px'
-});
+const Header = ({ children, ...props }) => (
+  <AppBar position="static" color="transparent" elevation={0} {...props}>
+    <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
+      {children}
+    </Toolbar>
+  </AppBar>
+);
 
 const StatusBadge = styled(Badge)(({ theme, status }) => ({
   '& .MuiBadge-badge': {
@@ -128,6 +130,18 @@ const CurrentNumberDisplay = styled(Box)({
   marginBottom: '16px'
 });
 
+const NumberCircle = styled(Box)({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '70px',
+  height: '70px',
+  borderRadius: '50%',
+  backgroundColor: '#7c4dff',
+  color: 'white',
+  margin: '10px 0'
+});
+
 const GameBoard = () => {
   // useTombala hook'unu kullan
   const {
@@ -171,12 +185,21 @@ const GameBoard = () => {
 
   // Avatar oluşturma yardımcı fonksiyonu
   const getPlayerAvatar = (player) => {
-    if (!player || !player.avatar) {
-      // Kullanıcı adının baş harfini içeren bir SVG döndür
-      const initial = player?.name ? player.name.charAt(0).toUpperCase() : 'U';
-      return `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="#2a2c4e"/><text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="middle" font-family="Arial" fill="white">' + initial + '</text></svg>')}`;
+    if (!player) {
+      return `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="#2a2c4e"/><text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="middle" font-family="Arial" fill="white">U</text></svg>')}`;
     }
-    return player.avatar;
+    
+    // Kullanıcı profil fotoğrafı varsa
+    if (player.profileImage) {
+      return player.profileImage;
+    }
+    
+    // Bot için farklı renk
+    const bgColor = player.isBot ? '#4a548e' : '#2a2c4e';
+    
+    // Kullanıcı adının baş harfini içeren bir SVG döndür
+    const initial = player.name ? player.name.charAt(0).toUpperCase() : 'U';
+    return `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="' + bgColor + '"/><text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="middle" font-family="Arial" fill="white">' + initial + '</text></svg>')}`;
   };
 
   // Mesajları otomatik kaydır
@@ -343,18 +366,64 @@ const GameBoard = () => {
   // Oyun durumu değiştiğinde özet ekranını göster
   useEffect(() => {
     if (gameStatus === 'finished') {
-      // Oyun sona erdiğinde kazananları topla
+      console.log("Oyun bitti, kazanan bilgileri (orijinal winners state):", winners);
+      console.log("Mevcut oyuncu listesi (players state):", players);
+
+      // Kazanan adını bulma yardımcı fonksiyonu
+      const getWinnerName = (winnerData) => {
+        if (!winnerData) return 'Kazanan yok';
+        
+        // Önce playerId ile players state'inde ara
+        if (winnerData.playerId && players && players.length > 0) {
+            const playerInState = players.find(p => { 
+                // 1. Doğrudan ID eşleşmesi (Botlar veya düzeltilmiş veri için)
+                if (p.id === winnerData.playerId) return true;
+                
+                // 2. Stringleşmiş ID içindeki eşleşme (Mevcut sorunu çözmek için)
+                if (typeof p.id === 'string' && p.id.includes(winnerData.playerId)) return true;
+                
+                // 3. Diğer olası ID alanlarını kontrol et (fallback)
+                if (p._id === winnerData.playerId) return true;
+                if (p.user && (p.user === winnerData.playerId || p.user._id === winnerData.playerId)) return true;
+                
+                return false; // Eşleşme bulunamadı
+            });
+
+            if (playerInState && playerInState.name) {
+                console.log(`Kazanan (${winnerData.playerId}) local players state'inden bulundu (güncellenmiş kontrol): ${playerInState.name}`);
+                return playerInState.name;
+            }
+        }
+        
+        // Bulunamazsa, winnerData içindeki playerName'i kullan (fallback)
+        if (winnerData.playerName) {
+            console.warn(`Kazanan (${winnerData.playerId || 'ID yok'}) local players state'inde bulunamadı, winners objesindeki isim kullanılıyor: ${winnerData.playerName}`);
+            return winnerData.playerName;
+        }
+        
+        // Hiçbir isim bulunamazsa
+        return 'Bilinmeyen Oyuncu';
+      };
+
+      // Oyun sona erdiğinde kazananları topla ve doğru isimleri ata
       const summary = {
-        cinko1Winner: winners.cinko1,
-        cinko2Winner: winners.cinko2,
-        tombalaWinner: winners.tombala,
+        cinko1Winner: winners.cinko1 ? { ...winners.cinko1, playerName: getWinnerName(winners.cinko1) } : null,
+        cinko2Winner: winners.cinko2 ? { ...winners.cinko2, playerName: getWinnerName(winners.cinko2) } : null,
+        tombalaWinner: winners.tombala ? { ...winners.tombala, playerName: getWinnerName(winners.tombala) } : null,
         allNumbersDrawn: drawnNumbers.length >= 90
       };
+      
+      console.log("Hazırlanan oyun özeti (doğru isimlerle):", summary);
+      
+      // Kazanan adını kontrol et (artık doğru olmalı)
+      if (summary.tombalaWinner) {
+        console.log("Tombala kazanan adı (özetten):", summary.tombalaWinner.playerName);
+      }
       
       setGameSummary(summary);
       setShowGameSummary(true);
     }
-  }, [gameStatus, winners, drawnNumbers]);
+  }, [gameStatus, winners, drawnNumbers, players]); // players bağımlılığını ekle
 
   // Oyuncu listesini oluştur
   const renderPlayerList = () => {
@@ -371,9 +440,12 @@ const GameBoard = () => {
     return (
       <PlayerList>
         {players.map((player) => (
-          <ListItem key={player.id || player._id || `player-${player.name}-${Math.random().toString(36).substr(2, 9)}`}>
+          <ListItem key={player.id || player._id || player.user || `player-${player.name}-${Math.random().toString(36).substr(2, 9)}`}>
             <ListItemAvatar>
-              <Avatar src={getPlayerAvatar(player)} alt={player.name}>
+              <Avatar 
+                sx={{ bgcolor: player.isBot ? '#1a237e' : '#7b1fa2' }}
+                src={player.profileImage}
+              >
                 {player.name ? player.name.charAt(0).toUpperCase() : "?"}
               </Avatar>
             </ListItemAvatar>
@@ -389,11 +461,19 @@ const GameBoard = () => {
                       sx={{ ml: 1, height: 20, fontSize: '0.625rem' }}
                     />
                   )}
+                  {player.isBot && (
+                    <Chip 
+                      size="small" 
+                      label="Bot" 
+                      color="default" 
+                      sx={{ ml: 1, height: 20, fontSize: '0.625rem' }}
+                    />
+                  )}
                 </Box>
               }
               secondary={
                 <Typography variant="caption" color="text.secondary">
-                  {player.status === 'ready' ? 'Hazır' : 'Bekliyor'}
+                  {player.isReady ? 'Hazır' : 'Bekliyor'}
                 </Typography>
               }
             />
@@ -405,24 +485,13 @@ const GameBoard = () => {
 
   // Sohbet mesajlarını oluştur
   const renderChatMessages = useMemo(() => {
-  return (
+    return (
       <ChatMessages>
         {(chatMessages || []).map((msg, index) => (
-          <Box 
-            key={msg.id || msg._id || `message-${msg.playerId}-${msg.timestamp}-${index}`} 
-            sx={{ 
-              mb: 1,
-              p: 1,
-              borderRadius: 1,
-              backgroundColor: msg.isSystem ? 'rgba(255, 183, 77, 0.1)' : (msg.playerId === playerId ? 'rgba(124, 77, 255, 0.1)' : 'rgba(255, 255, 255, 0.05)'),
-              alignSelf: msg.playerId === playerId ? 'flex-end' : 'flex-start'
-            }}
-          >
-            {!msg.isSystem && (
-              <Typography variant="caption" color="text.secondary">
-                {msg.playerName || `Oyuncu ${msg.playerId?.substr(-4) || 'Bilinmiyor'}`}
-              </Typography>
-            )}
+          <Box key={index} sx={msg.playerId === playerId ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }}>
+            <Typography variant="body2" fontWeight="bold" color={msg.color || 'primary'}>
+              {msg.playerName || 'Misafir Oyuncu'}
+            </Typography>
             <Typography variant="body2">
               {msg.message}
             </Typography>
@@ -431,7 +500,7 @@ const GameBoard = () => {
             </Typography>
           </Box>
         ))}
-        <div ref={messagesEndRef} />
+        <Box ref={messagesEndRef} />
       </ChatMessages>
     );
   }, [chatMessages, playerId]);
@@ -541,100 +610,40 @@ const GameBoard = () => {
         <DialogActions>
           <Button 
             variant="contained" 
-            onClick={() => setShowGameSummary(false)}
+            color="primary"
+            onClick={() => window.location.href = 'http://localhost:3000/home'}
             fullWidth
+            startIcon={<HomeIcon />}
           >
-            Kapat
+            Ana Sayfa
           </Button>
         </DialogActions>
       </Dialog>
     );
   };
 
-  // Oyun sonu diyaloğunu göster
-  const gameOverDialog = (
-    <Dialog
-      open={gameStatus === 'finished'}
-      onClose={() => {}}
-      aria-labelledby="game-over-dialog-title"
-      maxWidth="sm"
-      fullWidth
-    >
-      <DialogTitle id="game-over-dialog-title">
-        <Box component="div" display="flex" alignItems="center" justifyContent="center">
-          <EmojiEventsIcon sx={{ mr: 1, color: 'gold' }} />
-          <Typography component="div" variant="h5">
-            Oyun Sona Erdi
-          </Typography>
-        </Box>
-      </DialogTitle>
-      <DialogContent>
-        <Box sx={{ textAlign: 'center', mb: 2 }}>
-          {winners && Array.isArray(winners) && winners.length > 0 ? (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                Kazanan
-              </Typography>
-              {players
-                .filter(player => winners.includes(player.id))
-                .map(winner => (
-                  <Box key={winner.id || winner._id || `winner-${winner.name}-${Math.random().toString(36).substr(2, 9)}`} display="flex" alignItems="center" justifyContent="center" mb={1}>
-                    <Avatar src={getPlayerAvatar(winner)} alt={winner.name} sx={{ mr: 1 }}>
-                      {winner.name ? winner.name.charAt(0).toUpperCase() : "?"}
-                    </Avatar>
-                    <Typography variant="body1">{winner.name}</Typography>
-                  </Box>
-                ))}
-            </Box>
-          ) : (
-            <Typography>
-              {drawnNumbers.length >= 90 ? 'Tüm sayılar çekildi ancak kazanan yok.' : 'Henüz kazanan yok.'}
-            </Typography>
-          )}
-          
-          {winner && (
-            <Box mt={2}>
-              <Typography variant="body1" color="primary">
-                <EmojiEventsIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
-                {winType === 'tombala' ? 'TOMBALA!' : winType === 'cinko2' ? '2. Çinko' : '1. Çinko'}
-              </Typography>
-            </Box>
-          )}
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={() => window.location.reload()} color="primary">
-          Yeni Oyun
-        </Button>
-        {isHost && (
-          <Button onClick={startGame} color="secondary" variant="contained">
-            Yeni Tur Başlat
-          </Button>
-        )}
-      </DialogActions>
-    </Dialog>
-  );
-
   return (
     <Container maxWidth="xl" sx={{ py: 2, height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Header>
-        <Typography variant="h5" component="h1">
-          Tombala Oyunu
+      <AppBar position="static" color="transparent" elevation={0} component="header">
+        <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
+          <Typography variant="h5" component="h1">
+            Tombala Oyunu
           </Typography>
-        <Box display="flex" alignItems="center" gap={2}>
-          <StatusBadge status={isOnline ? 'online' : 'offline'} variant="dot">
-            <Typography variant="body2">
-              {isOnline ? 'Bağlı' : 'Bağlantı Yok'}
-            </Typography>
-          </StatusBadge>
-          
-          <Chip 
-            label={`Lobi: ${lobbyId || 'Bilinmiyor'}`}
-            variant="outlined"
-            size="small"
-          />
-        </Box>
-      </Header>
+          <Box display="flex" alignItems="center" gap={2}>
+            <StatusBadge status={isOnline ? 'online' : 'offline'} variant="dot">
+              <Typography variant="body2">
+                {isOnline ? 'Bağlı' : 'Bağlantı Yok'}
+              </Typography>
+            </StatusBadge>
+            
+            <Chip 
+              label={`Lobi: ${lobbyId || 'Bilinmiyor'}`}
+              variant="outlined"
+              size="small"
+            />
+          </Box>
+        </Toolbar>
+      </AppBar>
       
       <Grid container spacing={2} sx={{ flex: 1 }}>
         {/* Sol Panel - Oyuncu Listesi */}
@@ -696,10 +705,12 @@ const GameBoard = () => {
             {/* Mevcut Çekilen Sayı */}
             {gameStatus === 'playing' && (
               <CurrentNumberDisplay>
-                <Typography variant="caption">Son Çekilen Sayı</Typography>
-                <Typography variant="h3" color="primary">
-                  {currentNumber || '-'}
-                </Typography>
+                <Typography variant="subtitle2" fontWeight="medium">Son Çekilen Sayı</Typography>
+                <NumberCircle>
+                  <Typography variant="h3" fontWeight="bold">
+                    {currentNumber || '-'}
+                  </Typography>
+                </NumberCircle>
                 {/* Sayı çekme butonu */}
                 {drawButton}
               </CurrentNumberDisplay>
@@ -857,8 +868,7 @@ const GameBoard = () => {
         </Alert>
       </Snackbar>
 
-      {/* Oyun sonu diyaloğunu göster */}
-      {gameOverDialog}
+  
     </Container>
   );
 };

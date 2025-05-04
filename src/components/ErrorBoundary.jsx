@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import styled from 'styled-components';
 import { FaExclamationTriangle, FaRedo, FaHome } from 'react-icons/fa';
+import { Box, Typography, Button as MuiButton } from '@mui/material';
 
 const ErrorContainer = styled.div`
   display: flex;
@@ -64,6 +65,16 @@ const ErrorDetails = styled.details`
 `;
 
 const ButtonsContainer = styled.div`
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+  
+  @media (max-width: 576px) {
+    flex-direction: column;
+  }
+`;
+
+const ActionButtons = styled.div`
   display: flex;
   gap: 1rem;
   margin-top: 1rem;
@@ -167,14 +178,23 @@ class ErrorBoundary extends Component {
             </ErrorDetails>
           )}
           
-          <ButtonsContainer>
-            <Button $primary onClick={this.handleReload}>
-              <FaRedo /> Sayfayı Yenile
-            </Button>
-            <Button onClick={this.handleGoHome}>
-              <FaHome /> Ana Sayfaya Dön
-            </Button>
-          </ButtonsContainer>
+          <ActionButtons>
+            <MuiButton 
+              variant="contained" 
+              color="primary"
+              onClick={this.handleReload}
+              sx={{ mr: 2 }}
+            >
+              Sayfayı Yenile
+            </MuiButton>
+            
+            <MuiButton 
+              variant="outlined"
+              onClick={this.handleGoHome}
+            >
+              Ana Sayfaya Dön
+            </MuiButton>
+          </ActionButtons>
         </ErrorContainer>
       );
     }
