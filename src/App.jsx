@@ -18,6 +18,23 @@ const LoadingContainer = styled(Box)(({ theme }) => ({
   background: 'linear-gradient(135deg, #1a237e 0%, #311b92 100%)'
 }));
 
+// Global playerId tanımlaması
+if (typeof window !== 'undefined' && typeof playerId === 'undefined') {
+  window.playerId = localStorage.getItem('tombala_playerId') || 
+                   localStorage.getItem('playerId') || 
+                   `player_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+                   
+  // Global scope'a ekle
+  try {
+    const script = document.createElement('script');
+    script.textContent = `var playerId = "${window.playerId}";`;
+    document.head.appendChild(script);
+    console.log('App.jsx: Global playerId güvenceye alındı:', window.playerId);
+  } catch (e) {
+    console.error('Global scope playerId tanımlaması hatası:', e);
+  }
+}
+
 // URL parametrelerinden lobi ID'sini okumak için içe yönetim bileşeni
 const GameWrapper = () => {
   const { lobbyId } = useParams();
@@ -76,6 +93,22 @@ const App = () => {
     }, 800);
     
     return () => clearTimeout(timer);
+  }, []);
+  
+  // App yüklendiğinde playerId durumunu kontrol et
+  useEffect(() => {
+    // Eğer window.playerId tanımlıysa ama var playerId tanımlı değilse düzelt
+    if (typeof window !== 'undefined' && window.playerId && typeof playerId === 'undefined') {
+      try {
+        // Global scope'a ekle
+        const script = document.createElement('script');
+        script.textContent = `var playerId = "${window.playerId}";`;
+        document.head.appendChild(script);
+        console.log('App useEffect: global playerId değişkeni eklendi');
+      } catch (e) {
+        console.error('Global playerId eklenirken hata:', e);
+      }
+    }
   }, []);
   
   if (isInitializing) {

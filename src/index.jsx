@@ -127,6 +127,54 @@ window.addEventListener('unhandledrejection', event => {
   console.error('Yakalanmamış Promise hatası:', event.reason);
 });
 
+// Ana uygulamadan gelen postMessage mesajlarını dinle
+window.addEventListener('message', (event) => {
+  try {
+    console.log('Dış uygulamadan mesaj alındı:', event.data);
+    
+    // Eğer mesaj LOBBY_DATA türündeyse ve içinde lobbyId varsa
+    if (event.data && event.data.type === 'LOBBY_DATA' && event.data.lobbyId) {
+      console.log('Lobi ID alındı:', event.data.lobbyId);
+      
+      // Parametreleri hazırla
+      const { lobbyId, playerId, playerName, lobbyName } = event.data;
+      
+      // localStorage'a kaydet
+      if (lobbyId) localStorage.setItem('tombala_lobbyId', lobbyId);
+      if (playerId) localStorage.setItem('tombala_playerId', playerId);
+      if (playerName) localStorage.setItem('tombala_playerName', playerName);
+      if (lobbyName) localStorage.setItem('tombala_lobbyName', lobbyName);
+      
+      // tombalaParams nesnesine ekle veya güncelle
+      if (!window.tombalaParams) {
+        window.tombalaParams = {};
+      }
+      
+      // Tüm parametreleri window.tombalaParams'a aktarma
+      window.tombalaParams = {
+        ...window.tombalaParams,
+        lobbyId,
+        playerId,
+        playerName,
+        lobbyName
+      };
+      
+      console.log('PostMessage ile alınan parametreler:', window.tombalaParams);
+      
+      // Soket bağlantısını yenile - Bu parametrelerle yeni bağlantı kurulmasını sağla
+      if (window.refreshSocketConnection && typeof window.refreshSocketConnection === 'function') {
+        console.log('Soket bağlantısı yenileniyor...');
+        window.refreshSocketConnection(window.tombalaParams);
+      }
+      
+      // Oyun sayfasına otomatik yönlendirme yapma seçeneği
+      // Şu an otomatik yönlendirilmeyecek - SPA olarak kalıcak
+    }
+  } catch (error) {
+    console.error('Message event işlenirken hata:', error);
+  }
+}, false);
+
 // App bileşenini render et (BrowserRouter ile wrap edilmiş)
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

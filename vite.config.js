@@ -75,7 +75,7 @@ export default defineConfig({
   },
   // CORS sorunlarını önlemek için proxy ayarları
   server: {
-    port: 5174,
+    port: 3100,
     open: false,
     proxy: {
       '/api': {

@@ -1,83 +1,212 @@
 <!DOCTYPE html>
 <html lang="tr">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/tombala/" />
-    <meta name="theme-color" content="#1a237e" />
-    <meta name="description" content="Tombala - Çok oyunculu çevrimiçi tombala oyunu" />
-    <meta name="keywords" content="tombala, online, bingo, multiplayer, oyun" />
-    <meta name="author" content="Game Center" />
-    <link rel="icon" type="image/png" href="/tombala/favicon.png" />
-    <title>Tombala Oyunu</title>
-    <script>
-      // URL parametrelerini global değişkene dönüştür
-      window.tombalaParams = {};
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Önbelleği devre dışı bırak -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <!-- CSP ayarlama - iframe içinde çalışabilmesi için -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss: http: https:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; frame-ancestors 'self' *;">
+  <base href="/tombala/" />
+  <meta name="theme-color" content="#1a237e" />
+  <meta name="description" content="Tombala - Çok oyunculu çevrimiçi tombala oyunu" />
+  <meta name="keywords" content="tombala, online, bingo, multiplayer, oyun" />
+  <meta name="author" content="Game Center" />
+  <link rel="icon" type="image/png" href="/tombala/favicon.png" />
+  <title>Tombala Oyunu</title>
+  
+  <!-- Global playerId değişkeni tanımla - en önemli kısım -->
+  <script>
+    // Global scope'ta playerId değişkeni tanımla
+    var playerId;
+    
+    try {
+      // playerID'yi farklı kaynaklardan al
+      playerId = localStorage.getItem('tombala_playerId') || 
+                localStorage.getItem('playerId') || 
+                (window.location.search ? new URLSearchParams(window.location.search).get('playerId') : null) ||
+                `player_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+      
+      // window nesnesine de ekle
+      window.playerId = playerId;
+      
+      // localStorage'a kaydet
+      localStorage.setItem('tombala_playerId', playerId);
+      localStorage.setItem('playerId', playerId);
+      
+      console.log('Global playerId değişkeni tanımlandı:', playerId);
+    } catch (e) {
+      console.error('playerId tanımlanırken hata:', e);
+      // Minimum tanımlama
+      playerId = `player_${Date.now()}`;
+      window.playerId = playerId;
+    }
+    
+    // URL parametrelerini global değişkene dönüştür
+    window.tombalaParams = {};
+    if (window.location.search) {
       const urlParams = new URLSearchParams(window.location.search);
       
       // Tüm URL parametrelerini tombalaParams'a ekle
       for (const [key, value] of urlParams) {
         window.tombalaParams[key] = value;
       }
+    }
+    
+    // Prototype override ile ReferenceError'ı yakala ve düzelt
+    (function() {
+      // Orijinal hata constructor'ını sakla
+      var originalError = window.Error;
       
-      // Debug için konsola yazdır
-      console.log('Tombala Parametreleri:', window.tombalaParams);
-      
-      // Özellikle oyuncu ve lobi bilgilerini konsola yazdır
-      console.log('Lobi ID:', window.tombalaParams.lobbyId);
-      console.log('Oyuncu ID:', window.tombalaParams.playerId);
-      console.log('Lobi Adı:', window.tombalaParams.lobbyName);
-      
-      // LocalStorage'dan tombala bilgilerini al
-      try {
-        const storedPlayerId = localStorage.getItem('tombala_playerId');
-        const storedLobbyId = localStorage.getItem('tombala_lobbyId');
-        const storedLobbyCode = localStorage.getItem('tombala_lobbyCode');
-        const storedLobbyName = localStorage.getItem('tombala_lobbyName');
-        
-        // URL'den gelen değerleri yoksa localStorage'dan kullan
-        if (!window.tombalaParams.playerId && storedPlayerId) {
-          window.tombalaParams.playerId = storedPlayerId;
+      // Error constructor'ını override et
+      window.Error = function(message) {
+        // Eğer playerId hatası ise, global değişkeni tanımla
+        if (message && typeof message === 'string' && message.includes('playerId is not defined')) {
+          console.warn('Error override: playerId hatası yakalandı ve düzeltildi');
+          
+          // Global scope'a da ekle
+          playerId = window.playerId;
         }
         
-        if (!window.tombalaParams.lobbyId && (storedLobbyId || storedLobbyCode)) {
-          window.tombalaParams.lobbyId = storedLobbyId || storedLobbyCode;
+        // Orijinal hata constructor'ına ilet
+        return new originalError(message);
+      };
+      
+      // Prototype ve diğer özellikleri kopyala
+      window.Error.prototype = originalError.prototype;
+      window.Error.length = originalError.length;
+    })();
+  </script>
+  
+  <!-- İframe iletişimi için gerekli kodlar -->
+  <script>
+    window.addEventListener('load', function() {
+      console.log('Tombala iframe yüklendi, parent window ile iletişime geçmeye hazır');
+      
+      // Parent window'a oyun yüklendiğini bildir
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({
+            type: 'TOMBALA_LOADED',
+            timestamp: new Date().getTime()
+          }, '*');
+          console.log('Parent window\'a TOMBALA_LOADED mesajı gönderildi');
+        } catch (e) {
+          console.error('Parent window ile iletişim hatası:', e);
         }
-        
-        if (!window.tombalaParams.lobbyName && storedLobbyName) {
-          window.tombalaParams.lobbyName = storedLobbyName;
-        }
-        
-        console.log('LocalStorage değerleri eklendi. Güncel parametreler:', window.tombalaParams);
-      } catch (e) {
-        console.warn('LocalStorage erişim hatası:', e);
       }
+    });
+    
+    // Tombala için Parent window'dan gelen mesajları dinle
+    window.addEventListener('message', function(event) {
+      try {
+        const data = event.data;
+        if (!data || typeof data !== 'object') return;
+        
+        console.log('Parent window\'dan mesaj alındı:', data);
+        
+        // LOBBY_DATA türündeki mesajları işle
+        if (data.type === 'LOBBY_DATA') {
+          console.log('LOBBY_DATA mesajı işleniyor:', data);
+          
+          // Lobi verilerini pencere parametrelerine kaydet
+          if (data.lobbyId) {
+            window.tombalaParams.lobbyId = data.lobbyId;
+            localStorage.setItem('tombala_lobbyId', data.lobbyId);
+            console.log('Lobi ID güncellendi:', data.lobbyId);
+          }
+          
+          if (data.playerId) {
+            window.tombalaParams.playerId = data.playerId;
+            window.playerId = data.playerId; // Global playerId değişkenini güncelle
+            playerId = data.playerId; // Global scope değişkenini güncelle
+            localStorage.setItem('tombala_playerId', data.playerId);
+            localStorage.setItem('playerId', data.playerId);
+            console.log('Oyuncu ID güncellendi:', data.playerId);
+          }
+          
+          if (data.playerName) {
+            window.tombalaParams.playerName = data.playerName;
+            localStorage.setItem('tombala_playerName', data.playerName);
+            localStorage.setItem('playerName', data.playerName);
+            console.log('Oyuncu adı güncellendi:', data.playerName);
+          }
+          
+          // Mesajı aldığımızı belirten bir yanıt gönder
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({
+              type: 'LOBBY_DATA_RECEIVED',
+              success: true,
+              lobbyId: data.lobbyId,
+              timestamp: new Date().getTime()
+            }, '*');
+            console.log('LOBBY_DATA_RECEIVED yanıtı gönderildi');
+          }
+        }
+      } catch (error) {
+        console.error('Mesaj işleme hatası:', error);
+      }
+    });
+  </script>
+</head>
+<body>
+  <!-- Ek global playerId değişkeni tanımlaması - body başlangıcında -->
+  <script>
+    // Eğer head içindeki tanımlama başarısız olduysa burada tekrar dene
+    if (typeof playerId === 'undefined') {
+      console.warn('Body içinde playerId tanımlanıyor - head içindeki tanımlama başarısız olmuş olabilir');
+      var playerId = localStorage.getItem('tombala_playerId') || 
+                    localStorage.getItem('playerId') || 
+                    (window.location.search ? new URLSearchParams(window.location.search).get('playerId') : null) ||
+                    `player_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
       
-      // Ana uygulamadan gelen postMessage olaylarını dinle
-      window.addEventListener('message', function(event) {
-        // Güvenlik kontrolü - sadece aynı origin'den gelen mesajları kabul et
-        if (event.origin !== window.location.origin) {
-          console.warn('Farklı kökenden gelen mesaj reddedildi:', event.origin);
-          return;
+      // window nesnesine de ekle
+      window.playerId = playerId;
+      
+      // localStorage'a kaydet
+      localStorage.setItem('tombala_playerId', playerId);
+      localStorage.setItem('playerId', playerId);
+      
+      console.log('Body içinde global playerId değişkeni tanımlandı:', playerId);
+    }
+  </script>
+  
+  <div id="root"></div>
+  
+  <!-- Geliştirme ortamında Vite'ın entry point JavaScript -->
+  <script type="module" src="/src/index.jsx"></script>
+  
+  <!-- Error handling for playerId not defined -->
+  <script>
+    // Global değişkeni kontrol et ve gerekirse yeniden tanımla
+    window.addEventListener('error', function(e) {
+      if (e && e.message && e.message.includes('playerId is not defined')) {
+        console.warn('playerId hatası algılandı, düzeltiliyor');
+        
+        // Global değişkeni tanımla
+        if (typeof playerId === 'undefined') {
+          var playerId = localStorage.getItem('tombala_playerId') || 
+                        localStorage.getItem('playerId') || 
+                        window.tombalaParams?.playerId ||
+                        `player_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+          
+          window.playerId = playerId;
+          console.log('playerId değişkeni tanımlandı:', playerId);
         }
         
-        // Gelen veriyi kontrol et ve işle
-        const data = event.data;
-        if (data && data.type === 'LOBBY_DATA' && data.lobbyId) {
-          console.log('postMessage ile alınan lobi verisi:', data);
-          
-          // tombalaParams'ı güncelle
-          window.tombalaParams.lobbyId = data.lobbyId;
-          if (data.playerId) window.tombalaParams.playerId = data.playerId;
-          if (data.lobbyName) window.tombalaParams.lobbyName = data.lobbyName;
-          
-          console.log('Güncellenen tombalaParams:', window.tombalaParams);
-        }
-      });
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/index.jsx"></script>
-  </body>
+        // Hata çözüldü mü diye kontrol et, çözülmediyse sayfayı yenile
+        setTimeout(function() {
+          if (typeof playerId === 'undefined') {
+            console.log('Hata çözülemedi, sayfa yenileniyor');
+            window.location.reload();
+          }
+        }, 1000);
+        
+        return true; // Hatayı yuttuk
+      }
+    }, true);
+  </script>
+</body>
 </html> 

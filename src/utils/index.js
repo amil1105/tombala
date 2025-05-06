@@ -104,14 +104,49 @@ let socket;
 // Socket.io bağlantı durumu
 let connected = false;
 
+// Soket bağlantısını yenileme fonksiyonu - dış uygulamalardan çağrılabilir
+export const refreshSocketConnection = (params = {}) => {
+  console.log('refreshSocketConnection çağrıldı, parametreler:', params);
+  
+  // Mevcut soket bağlantısını kapat
+  if (socket) {
+    console.log('Mevcut soket bağlantısı kapatılıyor...');
+    socket.close();
+    socket = null;
+  }
+  
+  // Yeni bağlantı başlat
+  return initializeSocket(params);
+};
+
+// Window nesnesine refreshSocketConnection referansını ata (dış iframe'den çağrılabilmesi için)
+if (typeof window !== 'undefined') {
+  window.refreshSocketConnection = refreshSocketConnection;
+  console.log('refreshSocketConnection fonksiyonu window nesnesine atandı');
+}
+
 // Socket bağlantısını sağla
 export const initializeSocket = (params = {}) => {
-  if (socket) {
-    console.log('Socket bağlantısı zaten kurulmuş');
+  if (socket && socket.connected) {
+    console.log('Socket bağlantısı zaten kurulmuş ve aktif');
     return socket;
   }
   
-  const { lobbyId, playerId, playerName } = params;
+  const { lobbyId, playerId, playerName, lobbyName } = params;
+  
+  // tombalaParams üzerinden değerler yoksa localStorage'dan al
+  const finalLobbyId = lobbyId || localStorage.getItem('tombala_lobbyId');
+  const finalPlayerId = playerId || localStorage.getItem('tombala_playerId');
+  const finalPlayerName = playerName || localStorage.getItem('tombala_playerName') || 'Misafir Oyuncu';
+  const finalLobbyName = lobbyName || localStorage.getItem('tombala_lobbyName') || 'Tombala Lobisi';
+  
+  // Tüm değerleri loglama
+  console.log('Socket parametreleri hazırlandı:', {
+    lobbyId: finalLobbyId, 
+    playerId: finalPlayerId,
+    playerName: finalPlayerName,
+    lobbyName: finalLobbyName
+  });
   
   // Socket bağlantı URL'sini hazırla - varsayılan port 5000
   let socketUrl = SOCKET_URL || 'http://localhost:5000';
@@ -144,18 +179,18 @@ export const initializeSocket = (params = {}) => {
     };
     
     // Lobi ID varsa query parametresine ekle
-    if (lobbyId) {
-      socketOptions.query.lobbyId = lobbyId;
+    if (finalLobbyId) {
+      socketOptions.query.lobbyId = finalLobbyId;
     }
     
     // Oyuncu ID varsa query parametresine ekle
-    if (playerId) {
-      socketOptions.query.playerId = playerId;
+    if (finalPlayerId) {
+      socketOptions.query.playerId = finalPlayerId;
     }
     
     // Oyuncu adı varsa query parametresine ekle
-    if (playerName) {
-      socketOptions.query.playerName = playerName;
+    if (finalPlayerName) {
+      socketOptions.query.playerName = finalPlayerName;
     }
     
     // İlk olarak socket bağlantısını kurmayı dene
@@ -173,11 +208,12 @@ export const initializeSocket = (params = {}) => {
       eventEmitter.emit('socket_connected', { connected: true });
       
       // Lobi ve oyuncu ID'leri varsa lobi katılım olayı gönder
-      if (lobbyId && playerId) {
+      if (finalLobbyId && finalPlayerId) {
         const joinData = {
-          lobbyId,
-          playerId,
-          playerName: playerName || 'Misafir Oyuncu',
+          lobbyId: finalLobbyId,
+          playerId: finalPlayerId,
+          playerName: finalPlayerName || 'Misafir Oyuncu',
+          lobbyName: finalLobbyName || 'Tombala Lobisi',
           timestamp: new Date().toISOString()
         };
         
