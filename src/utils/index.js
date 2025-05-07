@@ -41,7 +41,8 @@ export const tombalaService = {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ lobbyName, playerName, cardCount })
+        body: JSON.stringify({ lobbyName, playerName, cardCount }),
+        credentials: 'include'
       });
       
       return await response.json();
@@ -59,7 +60,8 @@ export const tombalaService = {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ lobbyId, playerName, cardCount })
+        body: JSON.stringify({ lobbyId, playerName, cardCount }),
+        credentials: 'include'
       });
       
       return await response.json();
@@ -132,13 +134,48 @@ export const initializeSocket = (params = {}) => {
     return socket;
   }
   
-  const { lobbyId, playerId, playerName, lobbyName } = params;
+  // URL'den parametreleri çıkar
+  let urlParams = {};
+  try {
+    // URL parametrelerini al
+    const searchParams = new URLSearchParams(window.location.search);
+    
+    // Parametreleri kontrol et
+    if (searchParams.has('lobbyId')) urlParams.lobbyId = searchParams.get('lobbyId');
+    if (searchParams.has('playerId')) urlParams.playerId = searchParams.get('playerId');
+    if (searchParams.has('playerName')) urlParams.playerName = searchParams.get('playerName');
+    if (searchParams.has('lobbyName')) urlParams.lobbyName = searchParams.get('lobbyName');
+    
+    // URL path'inden lobi ID'yi çıkarmayı dene (ör: /tombala/game/ABCDEF)
+    const pathParts = window.location.pathname.split('/');
+    if (pathParts.length > 2) {
+      // Son parça muhtemelen lobi ID'si olabilir
+      const lastPathPart = pathParts[pathParts.length - 1];
+      if (lastPathPart && lastPathPart.length >= 5 && lastPathPart.length <= 10) {
+        urlParams.lobbyId = urlParams.lobbyId || lastPathPart;
+        console.log(`URL path'inden lobi ID alındı: ${lastPathPart}`);
+      }
+    }
+  } catch (e) {
+    console.error('URL parametreleri işlenirken hata:', e);
+  }
+  
+  const { lobbyId, playerId, playerName, lobbyName } = {
+    ...urlParams,  // Önce URL parametrelerini dene
+    ...params      // Ardından fonksiyona gönderilen parametreleri kullan (override)
+  };
   
   // tombalaParams üzerinden değerler yoksa localStorage'dan al
-  const finalLobbyId = lobbyId || localStorage.getItem('tombala_lobbyId');
-  const finalPlayerId = playerId || localStorage.getItem('tombala_playerId');
-  const finalPlayerName = playerName || localStorage.getItem('tombala_playerName') || 'Misafir Oyuncu';
-  const finalLobbyName = lobbyName || localStorage.getItem('tombala_lobbyName') || 'Tombala Lobisi';
+  const finalLobbyId = lobbyId || localStorage.getItem('tombala_lobbyId') || window.tombalaParams?.lobbyId;
+  const finalPlayerId = playerId || localStorage.getItem('tombala_playerId') || window.tombalaParams?.playerId || window.playerId;
+  const finalPlayerName = playerName || localStorage.getItem('tombala_playerName') || window.tombalaParams?.playerName || 'Misafir Oyuncu';
+  const finalLobbyName = lobbyName || localStorage.getItem('tombala_lobbyName') || window.tombalaParams?.lobbyName || 'Tombala Lobisi';
+  
+  // Parametreleri localStorage'a kaydet (sonraki kullanımlar için)
+  if (finalLobbyId) localStorage.setItem('tombala_lobbyId', finalLobbyId);
+  if (finalPlayerId) localStorage.setItem('tombala_playerId', finalPlayerId);
+  if (finalPlayerName) localStorage.setItem('tombala_playerName', finalPlayerName);
+  if (finalLobbyName) localStorage.setItem('tombala_lobbyName', finalLobbyName);
   
   // Tüm değerleri loglama
   console.log('Socket parametreleri hazırlandı:', {
@@ -148,8 +185,13 @@ export const initializeSocket = (params = {}) => {
     lobbyName: finalLobbyName
   });
   
-  // Socket bağlantı URL'sini hazırla - varsayılan port 5000
-  let socketUrl = SOCKET_URL || 'http://localhost:5000';
+  // Socket bağlantı URL'sini hazırla - vite.config.js proxy ayarları için
+  // Farklı kaynaklardan döngüsel olarak kontrol et
+  let socketUrl = window.__SOCKET_URL__ || 
+                  window.__VITE_ENV__?.VITE_SOCKET_URL ||
+                  window.__API_URL__ ||
+                  'http://localhost:5000';
+  
   console.log(`Socket bağlantısı başlatılıyor: ${socketUrl}`);
   
   try {
@@ -159,22 +201,22 @@ export const initializeSocket = (params = {}) => {
       console.log('Demo mod devre dışı bırakılıyor (socket bağlantısı öncesi)');
     }
     
-    // Demo mod sabitlerini kontrol et ve geçersiz kıl
-    if (DEMO_MODE && DEMO_MODE.ENABLED) {
-      console.log('DEMO_MODE.ENABLED değeri geçersiz kılınıyor (socket bağlantısı için)');
-      // Burada DEMO_MODE referansı değiştirilemiyor ancak bağlantı öncesi log ekliyoruz
-    }
-    
     // Socket.io bağlantı seçenekleri - daha güvenilir bağlantı için
     const socketOptions = {
-      forceNew: true,  // Her zaman yeni bağlantı kur
+      forceNew: true,        // Her zaman yeni bağlantı kur
       reconnection: true,
-      reconnectionAttempts: 15,   
-      reconnectionDelay: 1000,    
-      reconnectionDelayMax: 5000, 
-      timeout: 20000,             
+      reconnectionAttempts: 15,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
       autoConnect: true,
       transports: ['websocket', 'polling'],
+      withCredentials: true,  // CORS için credentials desteği
+      path: '/socket.io/',
+      extraHeaders: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': 'true'
+      },
       query: {}
     };
     
@@ -222,12 +264,12 @@ export const initializeSocket = (params = {}) => {
       }
     });
     
-    socket.on('disconnect', () => {
-      console.log('Socket bağlantısı kesildi');
+    socket.on('disconnect', (reason) => {
+      console.log(`Socket bağlantısı kesildi: ${reason}`);
       connected = false;
       
       // Bağlantı durumunu event emitter ile bildir
-      eventEmitter.emit('socket_disconnected', { connected: false });
+      eventEmitter.emit('socket_disconnected', { connected: false, reason });
     });
     
     socket.on('connect_error', (error) => {
@@ -248,6 +290,21 @@ export const initializeSocket = (params = {}) => {
       
       // Bağlantı durumunu event emitter ile bildir
       eventEmitter.emit('socket_reconnected', { connected: true, attemptNumber });
+      
+      // Yeniden bağlandığında lobi katılım olayı gönder
+      if (finalLobbyId && finalPlayerId) {
+        const joinData = {
+          lobbyId: finalLobbyId,
+          playerId: finalPlayerId,
+          playerName: finalPlayerName || 'Misafir Oyuncu',
+          lobbyName: finalLobbyName || 'Tombala Lobisi',
+          timestamp: new Date().toISOString(),
+          isReconnect: true
+        };
+        
+        socket.emit(SOCKET_EVENTS.JOIN_LOBBY, joinData);
+        console.log('Yeniden bağlantıda lobi katılım olayı gönderildi', joinData);
+      }
     });
     
     socket.on('reconnect_error', (error) => {

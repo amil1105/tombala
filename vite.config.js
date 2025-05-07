@@ -21,32 +21,26 @@ export default defineConfig({
             
             // URL'den lobbyId'yi çıkar
             const urlParts = urlPath.split('/');
-            let lobbyId = '';
+            const lobbyId = urlParts[2] || '';
             
-            if (urlParts.length > 2) {
-              lobbyId = urlParts[2];
+            if (lobbyId) {
+              // index.html içeriğini oku
+              const indexHtml = fs.readFileSync(
+                resolve(__dirname, 'index.html'),
+                'utf-8'
+              );
               
-              // Parametreleri al
-              const searchParams = req.url.includes('?') 
-                ? req.url.substring(req.url.indexOf('?')) 
-                : '';
+              // lobbyId bilgisini sayfaya ekle
+              const htmlWithLobby = indexHtml.replace(
+                '</head>',
+                `  <script>window.tombalaLobbyId = "${lobbyId}";</script>\n</head>`
+              );
               
-              // lobbyId'yi query param olarak gönder
-              res.writeHead(302, {
-                Location: `/tombala/game/${lobbyId}${searchParams}`
-              });
-              res.end();
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'text/html');
+              res.end(htmlWithLobby);
               return;
             }
-          } 
-          // Tombala alt rotalarını yönlendir
-          else if (
-            urlPath.match(/^\/tombala\/game\/[^/]+$/) || 
-            urlPath.match(/^\/tombala\/[A-Z0-9]{5,8}$/) ||
-            urlPath === '/tombala/game'
-          ) {
-            // HTML sayfasına yönlendir
-            req.url = '/tombala/index.html';
           }
           
           next();
@@ -70,29 +64,57 @@ export default defineConfig({
       VITE_API_URL: JSON.stringify(process.env.API_URL || 'http://localhost:5000'),
       VITE_SOCKET_URL: JSON.stringify(process.env.SOCKET_URL || 'http://localhost:5000'),
       VITE_NODE_ENV: JSON.stringify(process.env.NODE_ENV || 'development'),
-      VITE_BASE_URL: JSON.stringify('/tombala/')
-    }
+      VITE_BASE_URL: JSON.stringify('/tombala/'),
+      VITE_IFRAME_MODE: JSON.stringify(true)  // iframe modu aktif
+    },
+    // Global değişkenleri tanımla
+    __API_URL__: JSON.stringify('/api'),
+    __SOCKET_URL__: JSON.stringify('http://localhost:5000')
   },
   // CORS sorunlarını önlemek için proxy ayarları
   server: {
     port: 3100,
     open: false,
+    cors: {
+      origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5000'],
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization']
+    },
     proxy: {
+      // API isteklerini backend'e yönlendir
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
-        secure: false
+        secure: false,
+        ws: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('proxy error', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Proxying API Request:', req.method, req.url);
+          });
+        }
       },
+      // Socket.io isteklerini yönlendir
       '/socket.io': {
         target: 'http://localhost:5000',
-        ws: true,
-        changeOrigin: true
-      },
-      '/direct-tombala': {
-        target: 'http://localhost:5000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/direct-tombala/, '/tombala')
+        secure: false,
+        ws: true
+      },
+      // Doğrudan endpoint isteklerini yönlendir (eski API destek için)
+      '/lobbies/status': {
+        target: 'http://localhost:5000/api',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/lobbies\/status/, '/lobbies/status'),
+        secure: false,
       }
+    },
+    // Hata ayıklama bilgilerini görüntüle
+    hmr: {
+      overlay: true
     }
   },
   build: {

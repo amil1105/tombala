@@ -7,8 +7,8 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <!-- CSP ayarlama - iframe içinde çalışabilmesi için -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss: http: https:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; frame-ancestors 'self' *;">
+  <!-- CSP ayarlama - iframe içinde çalışabilmesi için - tüm bağlantılara izin ver -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' http: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss: http: https:; img-src 'self' data: http: https:; style-src 'self' 'unsafe-inline'; frame-ancestors *;">
   <base href="/tombala/" />
   <meta name="theme-color" content="#1a237e" />
   <meta name="description" content="Tombala - Çok oyunculu çevrimiçi tombala oyunu" />
@@ -54,6 +54,10 @@
         window.tombalaParams[key] = value;
       }
     }
+    
+    // API ve Socket URL'lerini bu noktada tanımla
+    window.__API_URL__ = 'http://localhost:5000';
+    window.__SOCKET_URL__ = 'http://localhost:5000';
     
     // Prototype override ile ReferenceError'ı yakala ve düzelt
     (function() {
@@ -132,6 +136,21 @@
             localStorage.setItem('tombala_playerName', data.playerName);
             localStorage.setItem('playerName', data.playerName);
             console.log('Oyuncu adı güncellendi:', data.playerName);
+          }
+          
+          // Socket bağlantısını yenile
+          if (window.refreshSocketConnection) {
+            try {
+              console.log('Socket bağlantısı yenileniyor...');
+              window.refreshSocketConnection({
+                lobbyId: data.lobbyId,
+                playerId: data.playerId,
+                playerName: data.playerName,
+                lobbyName: data.lobbyName || 'Tombala Lobisi'
+              });
+            } catch (e) {
+              console.error('Socket bağlantısı yenilenirken hata:', e);
+            }
           }
           
           // Mesajı aldığımızı belirten bir yanıt gönder

@@ -1,7 +1,23 @@
-// API base URL'ini belirle
-const API_BASE_URL = process.env.NODE_ENV === 'production'
-  ? '/api'
-  : 'http://localhost:5000/api';
+// API base URL'ini belirle - global yapılandırmayı kullan
+const API_BASE_URL = (() => {
+  // Önce global API URL değişkenini kontrol et
+  if (typeof window !== 'undefined' && window.__API_URL__) {
+    return window.__API_URL__;
+  }
+  
+  // Vite ortam değişkenlerini kontrol et
+  if (typeof window !== 'undefined' && window.__VITE_ENV__?.VITE_API_URL) {
+    return window.__VITE_ENV__.VITE_API_URL;
+  }
+  
+  // Geliştirme ortamında proxy yapılandırmasını kullan
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return '/api'; // Proxy kullan - vite.config.js'deki yapılandırmaya göre
+  }
+  
+  // Varsayılan yol
+  return '/api';
+})();
 
 /**
  * Oyun durumunu kaydet
@@ -45,7 +61,14 @@ export const saveGameStatus = async (lobbyId, gameState) => {
         controller.abort('Zaman aşımı');
       }, 10000);
       
-      const response = await fetch(`${API_BASE_URL}/lobbies/status/${lobbyId}`, {
+      console.log('API isteği yapılıyor:', `${API_BASE_URL}/lobbies/status/${lobbyId}`);
+      
+      // Burada API_BASE_URL değerini kontrol et
+      const apiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? '/api' 
+        : API_BASE_URL;
+        
+      const response = await fetch(`${apiUrl}/lobbies/status/${lobbyId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
@@ -54,7 +77,8 @@ export const saveGameStatus = async (lobbyId, gameState) => {
           status: gameState.gameStatus || 'playing',
           gameData: gameState
         }),
-        signal: controller.signal
+        signal: controller.signal,
+        credentials: 'include'
       });
       
       clearTimeout(timeoutId);
@@ -161,7 +185,8 @@ export const saveGameResults = async (lobbyId, results) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(results),
-        signal: controller.signal
+        signal: controller.signal,
+        credentials: 'include'
       });
       
       clearTimeout(timeoutId);

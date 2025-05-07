@@ -47,80 +47,131 @@ const theme = createTheme({
 // API Interceptor modülü
 console.log('API Interceptor modülü yüklendi, GameBoard içinde kullanılacak');
 
-// Global API ve socket URL'lerini ayarla (doğru portları kullan: backend 5000)
-window.__API_URL__ = window.location.hostname === 'localhost' 
-  ? `http://${window.location.hostname}:5000` 
-  : `https://${window.location.hostname}/api`;
-
-window.__SOCKET_URL__ = window.location.hostname === 'localhost' 
-  ? `http://${window.location.hostname}:5000` 
-  : `https://${window.location.hostname}/socket.io`;
-
-// URL parametrelerini al ve window.tombalaParams nesnesine ata
-try {
-  console.log('index.jsx - URL parametreleri işleniyor...');
+// Global API ve socket URL'lerini ayarla (proxy ayarlarıyla uyumlu)
+// Farklı kaynaklardan sırayla kontrol ederek en güvenilir yapılandırmayı kullan
+const setupGlobalConfig = () => {
+  // Geliştirme ortamında proxy ayarlarını kullan
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   
-  // URL parametrelerini analiz et
-  const urlParams = new URLSearchParams(window.location.search);
-  const pathSegments = window.location.pathname.split('/').filter(Boolean);
-  
-  // lobbyId için kontroller
-  let lobbyId = urlParams.get('lobbyId') || urlParams.get('lobby') || urlParams.get('code');
-  
-  // URL yolu üzerinden kontrol et (/game/LOBBYCODE gibi)
-  if (!lobbyId && pathSegments.length > 0) {
-    const lastSegment = pathSegments[pathSegments.length - 1];
-    if (lastSegment && lastSegment !== 'game' && lastSegment !== 'tombala') {
-      lobbyId = lastSegment;
-      console.log('index.jsx - LobbyId URL path\'inden alındı:', lobbyId);
+  // API URL ayarı
+  if (!window.__API_URL__) {
+    if (isLocalhost) {
+      // Geliştirme ortamında (vite.config.js proxy ayarlarını kullanmak için)
+      window.__API_URL__ = '/api';
+    } else {
+      // Prodüksiyon ortamında
+      window.__API_URL__ = `https://${window.location.hostname}/api`;
     }
   }
   
-  // Diğer parametreleri al
-  const playerId = urlParams.get('playerId') || localStorage.getItem('tombala_playerId');
-  const lobbyName = urlParams.get('lobbyName') || localStorage.getItem('tombala_lobbyName');
-  
-  // Varsayılan değerler kontrolü
-  if (!lobbyId) {
-    lobbyId = 'AGT187'; // Sabit bir varsayılan değer
-    console.log('index.jsx - Varsayılan LobbyId kullanıldı:', lobbyId);
+  // Socket URL ayarı
+  if (!window.__SOCKET_URL__) {
+    if (isLocalhost) {
+      // Geliştirme ortamında
+      window.__SOCKET_URL__ = 'http://localhost:5000';
+    } else {
+      // Prodüksiyon ortamında
+      window.__SOCKET_URL__ = `https://${window.location.hostname}`;
+    }
   }
   
-  // tombalaParams nesnesini oluştur
-  window.tombalaParams = {
-    lobbyId,
-    playerId,
-    lobbyName
-  };
-  
-  console.log('index.jsx - Tombala Parametreleri:', window.tombalaParams);
-  
-  // LocalStorage'a kaydet (null değilse)
-  if (lobbyId) localStorage.setItem('tombala_lobbyId', lobbyId);
-  if (playerId) localStorage.setItem('tombala_playerId', playerId);
-  if (lobbyName) localStorage.setItem('tombala_lobbyName', lobbyName);
-  
-  // Değerler varsa konsola logla
-  if (lobbyId) console.log(`index.jsx - Lobi ID: ${lobbyId}`);
-  if (playerId) console.log(`index.jsx - Oyuncu ID: ${playerId}`);
-  if (lobbyName) console.log(`index.jsx - Lobi Adı: ${lobbyName}`);
-  
-  // LocalStorage değerlerini kontrol et ve logla
-  const storedLobbyId = localStorage.getItem('tombala_lobbyId');
-  const storedPlayerId = localStorage.getItem('tombala_playerId');
-  const storedLobbyName = localStorage.getItem('tombala_lobbyName');
-  
-  if (storedLobbyId || storedPlayerId || storedLobbyName) {
-    console.log('index.jsx - LocalStorage değerleri eklendi. Güncel parametreler:', {
-      lobbyId: storedLobbyId,
-      playerId: storedPlayerId,
-      lobbyName: storedLobbyName
-    });
+  // Environment değişkenlerini de güncelle (vite define ile enjekte edilmiş)
+  if (window.__VITE_ENV__) {
+    window.__VITE_ENV__.VITE_API_URL = window.__API_URL__;
+    window.__VITE_ENV__.VITE_SOCKET_URL = window.__SOCKET_URL__;
   }
   
-} catch (error) {
-  console.error('index.jsx - URL parametreleri alınırken hata:', error);
-}
+  console.log('Global API URL:', window.__API_URL__);
+  console.log('Global Socket URL:', window.__SOCKET_URL__);
+};
+
+// Konfigürasyon ayarlarını uygula
+setupGlobalConfig();
+
+// URL ve postMessage parametrelerini alarak birleştir
+const processParams = () => {
+  try {
+    console.log('index.jsx - URL ve postMessage parametreleri işleniyor...');
+    
+    // Önceden atanmış tombalaParams varsa kullan
+    let params = window.tombalaParams || {};
+    
+    // URL parametrelerini analiz et
+    const urlParams = new URLSearchParams(window.location.search);
+    const pathSegments = window.location.pathname.split('/').filter(Boolean);
+    
+    // lobbyId için kontroller - URL'den
+    let lobbyId = urlParams.get('lobbyId') || urlParams.get('lobby') || urlParams.get('code');
+    
+    // URL yolu üzerinden kontrol et (/game/LOBBYCODE gibi)
+    if (!lobbyId && pathSegments.length > 0) {
+      const lastSegment = pathSegments[pathSegments.length - 1];
+      if (lastSegment && lastSegment !== 'game' && lastSegment !== 'tombala') {
+        lobbyId = lastSegment;
+        console.log('index.jsx - LobbyId URL path\'inden alındı:', lobbyId);
+      }
+    }
+    
+    // Global değişkenden kontrol et (direct-tombala middleware tarafından atanmış olabilir)
+    if (!lobbyId && window.tombalaLobbyId) {
+      lobbyId = window.tombalaLobbyId;
+      console.log('index.jsx - LobbyId global değişkenden alındı:', lobbyId);
+    }
+    
+    // Diğer parametreleri al - URL'den
+    const playerId = urlParams.get('playerId') || params.playerId;
+    const playerName = urlParams.get('playerName') || params.playerName;
+    const lobbyName = urlParams.get('lobbyName') || params.lobbyName;
+    
+    // LocalStorage'dan tamamla
+    const storedLobbyId = localStorage.getItem('tombala_lobbyId');
+    const storedPlayerId = localStorage.getItem('tombala_playerId');
+    const storedPlayerName = localStorage.getItem('tombala_playerName');
+    const storedLobbyName = localStorage.getItem('tombala_lobbyName');
+    
+    // Final parametreleri birleştir
+    params = {
+      lobbyId: lobbyId || storedLobbyId || 'TEST123',
+      playerId: playerId || storedPlayerId || '',
+      playerName: playerName || storedPlayerName || 'Misafir Oyuncu',
+      lobbyName: lobbyName || storedLobbyName || 'Tombala Lobisi'
+    };
+    
+    // window.tombalaParams olarak kaydet
+    window.tombalaParams = params;
+    
+    // localStorage'a da kaydet
+    if (params.lobbyId) localStorage.setItem('tombala_lobbyId', params.lobbyId);
+    if (params.playerId) localStorage.setItem('tombala_playerId', params.playerId);
+    if (params.playerName) localStorage.setItem('tombala_playerName', params.playerName);
+    if (params.lobbyName) localStorage.setItem('tombala_lobbyName', params.lobbyName);
+    
+    console.log('index.jsx - İşlenmiş Tombala Parametreleri:', params);
+    
+    // Yükleme tamamlandı - ebeveyn pencereye bildir
+    if (window !== window.parent) {
+      console.log('İframe modunda çalışıyor, ebeveyn pencereye yükleme mesajı gönderiliyor');
+      window.parent.postMessage({ 
+        type: 'TOMBALA_LOADED', 
+        lobbyId: params.lobbyId,
+        timestamp: Date.now() 
+      }, '*');
+    }
+    
+    return params;
+  } catch (error) {
+    console.error('index.jsx - URL parametreleri alınırken hata:', error);
+    return {
+      lobbyId: localStorage.getItem('tombala_lobbyId') || 'TEST123',
+      playerId: localStorage.getItem('tombala_playerId') || '',
+      playerName: localStorage.getItem('tombala_playerName') || 'Misafir Oyuncu',
+      lobbyName: localStorage.getItem('tombala_lobbyName') || 'Tombala Lobisi'
+    };
+  }
+};
+
+// Parametreleri işle
+const tombalaParams = processParams();
 
 // Yakalanmamış Promise redlerine global hata işleyicisi ekle
 window.addEventListener('unhandledrejection', event => {
@@ -165,6 +216,15 @@ window.addEventListener('message', (event) => {
       if (window.refreshSocketConnection && typeof window.refreshSocketConnection === 'function') {
         console.log('Soket bağlantısı yenileniyor...');
         window.refreshSocketConnection(window.tombalaParams);
+      } else {
+        console.warn('refreshSocketConnection fonksiyonu bulunamadı. Socket bağlantısı güncellenemedi.');
+        // 500ms sonra tekrar dene
+        setTimeout(() => {
+          if (window.refreshSocketConnection && typeof window.refreshSocketConnection === 'function') {
+            console.log('Soket bağlantısı yenileniyor (gecikmiş)...');
+            window.refreshSocketConnection(window.tombalaParams);
+          }
+        }, 500);
       }
       
       // Oyun sayfasına otomatik yönlendirme yapma seçeneği
@@ -174,6 +234,23 @@ window.addEventListener('message', (event) => {
     console.error('Message event işlenirken hata:', error);
   }
 }, false);
+
+// Ebeveyn pencereye yükleme mesajı gönder (iframe içinde çalışıyorsa)
+if (window !== window.parent) {
+  // Sayfa yüklendikten 200ms sonra mesaj göndermeyi dene (parent hazır olsun diye)
+  setTimeout(() => {
+    try {
+      window.parent.postMessage({
+        type: 'TOMBALA_LOADED',
+        lobbyId: tombalaParams.lobbyId,
+        timestamp: Date.now()
+      }, '*');
+      console.log('Ebeveyn pencereye TOMBALA_LOADED mesajı gönderildi');
+    } catch (error) {
+      console.error('Ebeveyn pencereye mesaj gönderme hatası:', error);
+    }
+  }, 200);
+}
 
 // App bileşenini render et (BrowserRouter ile wrap edilmiş)
 ReactDOM.createRoot(document.getElementById('root')).render(

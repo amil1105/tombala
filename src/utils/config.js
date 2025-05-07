@@ -17,20 +17,41 @@ const getHostname = () => {
 
 // API ve socket için URL'ler (geliştirilmiş versiyon)
 export const API_URL = (() => {
+  // window.__API_URL__ global değişkeni varsa onu kullan (vite.config'den gelir)
+  if (typeof window !== 'undefined' && window.__API_URL__) {
+    return window.__API_URL__;
+  }
+  
+  // Vite ortam değişkenleri varsa onu kullan
+  if (typeof window !== 'undefined' && window.__VITE_ENV__?.VITE_API_URL) {
+    return window.__VITE_ENV__.VITE_API_URL;
+  }
+  
   const hostname = getHostname();
   // Geliştirme ortamında localhost:5000 kullan
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `http://${hostname}:5000`;
+    // Proxy ayarları için kök URL kullan
+    return '/api';
   }
   // Prodüksiyon ortamında kullanılan domain'in /api endpoint'ini kullan
   return `https://${hostname}/api`;
 })();
 
 export const SOCKET_URL = (() => {
+  // window.__SOCKET_URL__ global değişkeni varsa onu kullan (vite.config'den gelir)
+  if (typeof window !== 'undefined' && window.__SOCKET_URL__) {
+    return window.__SOCKET_URL__;
+  }
+  
+  // Vite ortam değişkenleri varsa onu kullan
+  if (typeof window !== 'undefined' && window.__VITE_ENV__?.VITE_SOCKET_URL) {
+    return window.__VITE_ENV__.VITE_SOCKET_URL;
+  }
+  
   const hostname = getHostname();
-  // Geliştirme ortamında localhost:5000 kullan
+  // Geliştirme ortamında socket için localhost:5000 kullan
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `http://${hostname}:5000`;
+    return 'http://localhost:5000';
   }
   // Prodüksiyon ortamında secure websocket kullan
   return `https://${hostname}`;
