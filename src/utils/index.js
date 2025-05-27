@@ -275,8 +275,36 @@ export const initializeSocket = (params = {}) => {
     socket.on('connect_error', (error) => {
       console.error('Socket bağlantı hatası:', error);
       
-      // Demo mod devreye alınmasını engelle - özel koşullu olarak
-      console.log('Socket bağlantı hatası gerçekleşti, ancak Demo modu etkinleştirilmeyecek');
+      // Socket URL'ini değiştirerek tekrar deneme yap
+      if (socketUrl.includes('localhost:3000')) {
+        console.log('Socket bağlantısı localhost:3000 üzerinden başarısız oldu, localhost:3100 üzerinden tekrar deneniyor...');
+        socketUrl = 'http://localhost:3100';
+        // Yeni bağlantı dene
+        try {
+          socket.io.uri = socketUrl;
+          socket.io.opts.hostname = 'localhost';
+          socket.io.opts.port = '3100';
+          socket.connect();
+        } catch (e) {
+          console.error('Socket bağlantısı URL değişikliği başarısız oldu:', e);
+        }
+      } else if (socketUrl.includes('localhost:5000')) {
+        console.log('Socket bağlantısı localhost:5000 üzerinden başarısız oldu, localhost:3100 üzerinden tekrar deneniyor...');
+        socketUrl = 'http://localhost:3100';
+        // Yeni bağlantı dene
+        try {
+          socket.io.uri = socketUrl;
+          socket.io.opts.hostname = 'localhost';
+          socket.io.opts.port = '3100';
+          socket.connect();
+        } catch (e) {
+          console.error('Socket bağlantısı URL değişikliği başarısız oldu:', e);
+        }
+      } else {
+        // Bağlantı hatasından sonra demo modu etkinleştir
+        console.log('Socket bağlantı hatası gerçekleşti, daha fazla hata mesajını engellemek için demo moda geçiliyor');
+        enableDemoMode();
+      }
     });
     
     socket.on('error', (error) => {

@@ -27,7 +27,7 @@ export const GlobalStyle = createGlobalStyle`
   }
 
   html, body {
-    font-family: 'Roboto', 'Segoe UI', 'Arial', sans-serif;
+    font-family: 'Oxanium', 'Segoe UI', 'Arial', sans-serif;
     background: linear-gradient(135deg, var(--background-color) 0%, var(--background-secondary) 100%);
     color: var(--text-light);
     min-height: 100vh;
@@ -42,7 +42,7 @@ export const GlobalStyle = createGlobalStyle`
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Poppins', 'Segoe UI', 'Arial', sans-serif;
+    font-family: 'Oxanium', 'Segoe UI', 'Arial', sans-serif;
     font-weight: 700;
     margin-bottom: 1rem;
     color: var(--text-light);

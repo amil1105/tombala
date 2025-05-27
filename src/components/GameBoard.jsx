@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Box, Grid, Paper, Typography, Button, Badge, Chip, Divider, List, ListItem, ListItemText, Avatar, TextField, IconButton, CircularProgress, Container, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, ListItemAvatar, AppBar, Toolbar, Collapse } from '@mui/material';
+import { Box, Grid, Paper, Typography, Button, Badge, Chip, Divider, List, ListItem, ListItemText, Avatar, TextField, IconButton, CircularProgress, Container, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, ListItemAvatar, AppBar, Toolbar, Collapse, FormControl, FormControlLabel, RadioGroup, Radio, FormLabel, Switch } from '@mui/material';
 import { styled } from '@mui/system';
 import SendIcon from '@mui/icons-material/Send';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
@@ -15,6 +15,10 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import PeopleIcon from '@mui/icons-material/People';
+import SettingsIcon from '@mui/icons-material/Settings';
+import GroupIcon from '@mui/icons-material/Group';
+import ViewComfyIcon from '@mui/icons-material/ViewComfy';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
 import { useTombala } from '../hooks/useTombala';
 import NumberBoard from './NumberBoard';
 import TombalaCard from './TombalaCard';
@@ -138,19 +142,35 @@ const CurrentNumberDisplay = styled(Box)({
   marginBottom: '8px'
 });
 
-const NumberCircle = styled(Box)(({theme, marked = false, highlight = false}) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: marked ? '36px' : '50px',
-  height: marked ? '36px' : '50px',
-  borderRadius: '50%',
-  backgroundColor: highlight ? '#ff5722' : marked ? '#7c4dff' : 'rgba(124, 77, 255, 0.2)',
-  color: marked || highlight ? 'white' : theme?.palette?.text?.primary || '#fff',
-  margin: '4px',
-  transition: 'all 0.3s ease',
-  fontWeight: highlight ? 'bold' : 'normal',
-}));
+// Yeni NumberCircle fonksiyon bileşeni
+const NumberCircle = ({ marked, highlight, big, children, ...props }) => {
+  // Boolean değerleri doğrudan DOM'a geçirmek yerine sx içinde kullanıyoruz
+  const isMarked = Boolean(marked);
+  const isHighlight = Boolean(highlight);
+  const isBig = Boolean(big);
+  
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: isBig ? '70px' : (isMarked ? '36px' : '50px'),
+        height: isBig ? '70px' : (isMarked ? '36px' : '50px'),
+        borderRadius: '50%',
+        backgroundColor: isHighlight ? '#ff5722' : isMarked ? '#7c4dff' : 'rgba(124, 77, 255, 0.2)',
+        color: isMarked || isHighlight ? 'white' : (theme) => theme?.palette?.text?.primary || '#fff',
+        margin: '4px',
+        transition: 'all 0.3s ease',
+        fontWeight: isHighlight ? 'bold' : 'normal',
+        fontSize: isBig ? '2.5rem' : undefined,
+      }}
+      {...props}
+    >
+      {children}
+    </Box>
+  );
+};
 
 const RecentNumbersContainer = styled(Box)({
   display: 'flex',
@@ -176,6 +196,9 @@ const CountdownCircle = styled(Box)({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+  '& .MuiCircularProgress-root': {
+    transition: 'transform 0.5s ease',
+  }
 });
 
 const CompactPlayerList = styled(List)({
@@ -229,10 +252,15 @@ const GameBoard = () => {
     notifications,
     chatMessages,
     isPaused,
+    autoDrawEnabled,
+    countdownTimer,
     drawNextNumber: hookDrawNextNumber,
     createPlayerCards,
     winners,
-    generateTombalaCards
+    generateTombalaCards,
+    lobbyData,
+    lobbySettings,
+    updateLobbySettings
   } = useTombala();
   
   // Yerel state'ler
@@ -248,9 +276,15 @@ const GameBoard = () => {
     cinko2Winner: null,
     tombalaWinner: null
   });
-  const [autoDrawEnabled, setAutoDrawEnabled] = useState(true);
-  const [countdownTimer, setCountdownTimer] = useState(10);
   const [isPlayerListOpen, setIsPlayerListOpen] = useState(true);
+  
+  // Ayarlar modalı için state'ler
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [tempSettings, setTempSettings] = useState({
+    manualNumberDrawPermission: 'host-only',
+    gameSpeed: 'normal',
+    enableMusic: true
+  });
 
   // Son mesaj referansı
   const messagesEndRef = useRef(null);
@@ -267,15 +301,18 @@ const GameBoard = () => {
       return `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="#2a2c4e"/><text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="middle" font-family="Arial" fill="white">U</text></svg>')}`;
     }
     
+    // Bot için Dicebear API kullan
+    if (player.isBot) {
+      return `https://api.dicebear.com/6.x/bottts/svg?seed=${player.name || 'Bot'}&_t=${Date.now()}`;
+    }
+    
     // Kullanıcı profil fotoğrafı varsa
     if (player.profileImage) {
       return player.profileImage;
     }
     
-    // Bot için farklı renk
-    const bgColor = player.isBot ? '#4a548e' : '#2a2c4e';
-    
-    // Kullanıcı adının baş harfini içeren bir SVG döndür
+    // Normal kullanıcı için SVG avatar
+    const bgColor = '#2a2c4e';
     const initial = player.name ? player.name.charAt(0).toUpperCase() : 'U';
     return `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="' + bgColor + '"/><text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="middle" font-family="Arial" fill="white">' + initial + '</text></svg>')}`;
   };
@@ -289,12 +326,29 @@ const GameBoard = () => {
 
   // Bir sonraki sayıyı çekme (sadece host için)
   const drawNextNumber = useCallback(() => {
-    console.log("GameBoard: Sayı çekme isteği", { socket, isHost, gameStatus, isPaused });
+    console.log("GameBoard: Sayı çekme isteği", { isHost, gameStatus, isPaused, lobbySettings });
     
-    // Hook'tan gelen drawNextNumber fonksiyonunu çağır
+    // Sayı çekme yetkisi kontrolü - ayarlara göre
+    const canDrawNumber = isHost || (lobbySettings && lobbySettings.manualNumberDrawPermission === 'all-players');
+    
+    if (!canDrawNumber) {
+      setAlertMessage('Sayı çekme yetkiniz bulunmuyor! Sadece lobi sahibi sayı çekebilir.');
+      setAlertSeverity('warning');
+      setAlertOpen(true);
+      return;
+    }
+    
+    // Oyun durumu kontrolü
+    if (gameStatus !== 'playing') {
+      setAlertMessage('Oyun başlamadan sayı çekemezsiniz!');
+      setAlertSeverity('warning');
+      setAlertOpen(true);
+      return;
+    }
+    
+    // Hook'taki fonksiyonu çağır
     hookDrawNextNumber();
-    
-  }, [hookDrawNextNumber, socket, isHost, gameStatus, isPaused]);
+  }, [gameStatus, isPaused, isHost, lobbySettings, hookDrawNextNumber, setAlertMessage, setAlertSeverity, setAlertOpen]);
 
   // Yeni oyun başlatma fonksiyonu
   const startGame = () => {
@@ -376,31 +430,36 @@ const GameBoard = () => {
     }
   }, [gameStatus, playerCards, createPlayerCards, drawnNumbers]);
 
-  // GameControls bileşeni için bir useEffect hook'u
+  // Debug için lobi ve oyuncu verilerini konsola yazdır
   useEffect(() => {
-    // Eğer kullanıcı oyun içindeyse ve oyun devam ediyorsa otomatik sayı çekmeyi başlat
-    if (gameStatus === 'playing' && !isPaused && isOnline && socket && autoDrawEnabled) {
-      // Countdown timer'ı güncelle
-      const countdownId = setInterval(() => {
-        setCountdownTimer((prevCount) => {
-          if (prevCount <= 1) {
-            // 0'a ulaştığında sayı çek ve sayacı 10'a resetle
-            drawNextNumber();
-            return 10;
-          }
-          return prevCount - 1;
-        });
-      }, 1000); // Her saniye timer'ı güncelle
-      
-      // Temizleme işlevi döndür
-      return () => {
-        clearInterval(countdownId);
-      };
-    } else {
-      // Duraklatıldıysa countdown'ı resetle
-      setCountdownTimer(10);
+    console.log('Lobi verileri:', lobbyData);
+    console.log('Oyuncular:', players);
+  }, [lobbyData, players]);
+
+  // Otomatik sayı çekmeyi başlatma/durdurma
+  const toggleAutoDrawing = useCallback(() => {
+    if (!socket || !isHost) {
+      setAlertMessage('Sadece lobi sahibi otomatik sayı çekmeyi kontrol edebilir!');
+      setAlertSeverity('warning');
+      setAlertOpen(true);
+      return;
     }
-  }, [gameStatus, isPaused, isOnline, socket, drawNextNumber, autoDrawEnabled]);
+
+    const newAutoDrawState = !autoDrawEnabled;
+    console.log(`Otomatik sayı çekme durumu değiştiriliyor: autoDrawEnabled = ${newAutoDrawState}`);
+    
+    // Aynı zamanda oyunun duraklatma durumunu da güncelle
+    socket.emit('game_update', {
+      lobbyId,
+      isPaused: !newAutoDrawState, // autoDrawEnabled true ise isPaused false olmalı
+      timestamp: Date.now()
+    });
+    
+    // Bildirim ekle
+    setAlertMessage(newAutoDrawState ? 'Otomatik sayı çekme açıldı' : 'Otomatik sayı çekme kapatıldı');
+    setAlertSeverity('info');
+    setAlertOpen(true);
+  }, [socket, isHost, autoDrawEnabled, lobbyId, setAlertMessage, setAlertSeverity, setAlertOpen]);
 
   // Mesaj gönderme işlevi
   const sendMessage = useCallback(() => {
@@ -439,15 +498,29 @@ const GameBoard = () => {
     });
   }, [socket, lobbyId, playerId, selectedCard]);
 
-  // Oyunu başlatma (sadece host için)
+  // Oyunu duraklatma/devam ettirme (sadece host için)
   const togglePause = useCallback(() => {
-    if (!socket || !isHost) return;
+    if (!socket || !isHost) {
+      setAlertMessage('Sadece lobi sahibi oyunu duraklatabilir/devam ettirebilir!');
+      setAlertSeverity('warning');
+      setAlertOpen(true);
+      return;
+    }
+
+    const newPausedState = !isPaused;
+    console.log(`Oyun durumu değiştiriliyor: isPaused = ${newPausedState}`);
 
     socket.emit('game_update', {
-          lobbyId,
-      isPaused: !isPaused
+      lobbyId,
+      isPaused: newPausedState,
+      timestamp: Date.now()
     });
-  }, [socket, isHost, lobbyId, isPaused]);
+    
+    // Bildirim ekle
+    setAlertMessage(newPausedState ? 'Oyun duraklatıldı' : 'Oyun devam ediyor');
+    setAlertSeverity('info');
+    setAlertOpen(true);
+  }, [socket, isHost, lobbyId, isPaused, setAlertMessage, setAlertSeverity, setAlertOpen]);
 
   // Oyun durumu değiştiğinde özet ekranını göster
   useEffect(() => {
@@ -459,31 +532,37 @@ const GameBoard = () => {
       const getWinnerName = (winnerData) => {
         if (!winnerData) return 'Kazanan yok';
         
+        // Önce playerId kontrol et ve mevcut kullanıcı değilse devam et
+        if (winnerData.playerId && playerId) {
+            const winnerIdStr = String(winnerData.playerId);
+            const currentPlayerIdStr = String(playerId);
+            
+            // Eğer oyuncular aynı değilse (ID'ler farklıysa) normal işleme devam et
+            // ID'leri tam karşılaştırma yapalım - böylece "kendisinin kazandığı" hatası çözülecek
+            if (winnerIdStr === currentPlayerIdStr) {
+                console.log(`Kazanan oyuncu mevcut kullanıcıdır: ${winnerData.playerName || 'İsim yok'}`);
+            }
+        }
+        
         // Önce playerId ile players state'inde ara
         if (winnerData.playerId && players && players.length > 0) {
             const playerInState = players.find(p => { 
-                // 1. Doğrudan ID eşleşmesi (Botlar veya düzeltilmiş veri için)
-                if (p.id === winnerData.playerId) return true;
+                // Stringe çevirip tam eşleşme kontrolü yapalım
+                const pIdStr = String(p.id || '');
+                const winnerIdStr = String(winnerData.playerId || '');
                 
-                // 2. Stringleşmiş ID içindeki eşleşme (Mevcut sorunu çözmek için)
-                if (typeof p.id === 'string' && p.id.includes(winnerData.playerId)) return true;
-                
-                // 3. Diğer olası ID alanlarını kontrol et (fallback)
-                if (p._id === winnerData.playerId) return true;
-                if (p.user && (p.user === winnerData.playerId || p.user._id === winnerData.playerId)) return true;
-                
-                return false; // Eşleşme bulunamadı
+                return pIdStr === winnerIdStr;
             });
 
             if (playerInState && playerInState.name) {
-                console.log(`Kazanan (${winnerData.playerId}) local players state'inden bulundu (güncellenmiş kontrol): ${playerInState.name}`);
+                console.log(`Kazanan (${winnerData.playerId}) players state'inden bulundu: ${playerInState.name}`);
                 return playerInState.name;
             }
         }
         
-        // Bulunamazsa, winnerData içindeki playerName'i kullan (fallback)
+        // Bulunamazsa, winnerData içindeki playerName'i kullan
         if (winnerData.playerName) {
-            console.warn(`Kazanan (${winnerData.playerId || 'ID yok'}) local players state'inde bulunamadı, winners objesindeki isim kullanılıyor: ${winnerData.playerName}`);
+            console.log(`Kazanan (${winnerData.playerId || 'ID yok'}) ismi: ${winnerData.playerName}`);
             return winnerData.playerName;
         }
         
@@ -509,12 +588,7 @@ const GameBoard = () => {
       setGameSummary(summary);
       setShowGameSummary(true);
     }
-  }, [gameStatus, winners, drawnNumbers, players]); // players bağımlılığını ekle
-
-  // Otomatik sayı çekmeyi başlatma/durdurma
-  const toggleAutoDrawing = useCallback(() => {
-    setAutoDrawEnabled(prev => !prev);
-  }, []);
+  }, [gameStatus, winners, drawnNumbers, players, playerId]);
 
   // Oyuncu listesi render fonksiyonunu güncelliyorum
   const renderCompactPlayerList = () => {
@@ -528,48 +602,112 @@ const GameBoard = () => {
       );
     }
 
+    console.log('Oyuncu Listesi Render: Players', players);
+    console.log('Oyuncu Listesi Render: Lobby Data', lobbyData);
+    
+    // ID'yi normalize etme yardımcı fonksiyonu
+    const normalizeId = (id) => {
+      if (!id) return '';
+      return typeof id === 'string' ? id : id.toString();
+    };
+    
+    // Eğer lobbyData varsa creator'ı normalize edelim
+    let creatorId = '';
+    if (lobbyData && lobbyData.creator) {
+      creatorId = normalizeId(lobbyData.creator);
+      console.log(`Creator ID (normalized): ${creatorId}`);
+    }
+    
+    // Host oyuncuyu listenin başına alacak şekilde sıralama yap
+    const sortedPlayers = [...players].sort((a, b) => {
+      // Önce direk isHost özelliğini kontrol et
+      if (a.isHost === true && b.isHost !== true) return -1;
+      if (a.isHost !== true && b.isHost === true) return 1;
+      
+      // Eğer isHost özelliği yoksa, creator ID'si ile karşılaştır
+      if (creatorId && creatorId.length > 0) {
+        const aId = normalizeId(a.id);
+        const bId = normalizeId(b.id);
+        
+        const aIsCreator = aId === creatorId || 
+          (aId.includes(creatorId) && creatorId.length > 5) || 
+          (creatorId.includes(aId) && aId.length > 5);
+          
+        const bIsCreator = bId === creatorId || 
+          (bId.includes(creatorId) && creatorId.length > 5) ||
+          (creatorId.includes(bId) && bId.length > 5);
+        
+        if (aIsCreator && !bIsCreator) return -1;
+        if (!aIsCreator && bIsCreator) return 1;
+      }
+      
+      return 0;
+    });
+    
     return (
       <CompactPlayerList dense>
-        {players.map((player) => (
-          <ListItem key={player.id || player._id || player.user || `player-${player.name}-${Math.random().toString(36).substr(2, 9)}`}>
-            <ListItemAvatar>
-              <Avatar 
-                sx={{ bgcolor: player.isBot ? '#1a237e' : '#7b1fa2', width: 30, height: 30, fontSize: '0.75rem' }}
-                src={player.profileImage}
-              >
-                {player.name ? player.name.charAt(0).toUpperCase() : "?"}
-              </Avatar>
-            </ListItemAvatar>
-            <ListItemText 
-              primary={
-                <Box display="flex" alignItems="center">
-                  <Typography variant="body2">{player.name}</Typography>
-                  {player.isHost && (
-                    <Chip 
-                      size="small" 
-                      label="Host" 
-                      color="primary" 
-                      sx={{ ml: 1, height: 16, fontSize: '0.6rem' }}
-                    />
-                  )}
-                  {player.isBot && (
-                    <Chip 
-                      size="small" 
-                      label="Bot" 
-                      color="default" 
-                      sx={{ ml: 1, height: 16, fontSize: '0.6rem' }}
-                    />
-                  )}
-                </Box>
-              }
-              secondary={
-                <Typography variant="caption" color="text.secondary">
-                  {player.isReady ? 'Hazır' : 'Bekliyor'}
-                </Typography>
-              }
-            />
-          </ListItem>
-        ))}
+        {sortedPlayers.map((player) => {
+          // Önce direk isHost özelliğini kontrol et
+          let isPlayerHost = player.isHost === true;
+          
+          // Eğer isHost değeri yoksa veya false ise ve creatorId varsa
+          // creatorId ile player.id karşılaştırması yaparak host olup olmadığını belirle
+          if (!isPlayerHost && creatorId && creatorId.length > 0) {
+            const playerId = normalizeId(player.id);
+            isPlayerHost = playerId === creatorId || 
+              (playerId.includes(creatorId) && creatorId.length > 5) ||
+              (creatorId.includes(playerId) && playerId.length > 5);
+          }
+          
+          console.log(`Oyuncu: ${player.name}, ID: ${player.id}, Host mu: ${isPlayerHost}`);
+          
+          return (
+            <ListItem key={player.id || `player-${player.name}-${Math.random().toString(36).substr(2, 9)}`}>
+              <ListItemAvatar>
+                <Avatar 
+                  sx={{ 
+                    bgcolor: player.isBot ? '#1a237e' : isPlayerHost ? '#FFC107' : '#7b1fa2', 
+                    width: 30, 
+                    height: 30, 
+                    fontSize: '0.75rem',
+                    border: isPlayerHost ? '2px solid #FFC107' : 'none'
+                  }}
+                  src={getPlayerAvatar(player)}
+                >
+                  {player.name ? player.name.charAt(0).toUpperCase() : "?"}
+                </Avatar>
+              </ListItemAvatar>
+              <ListItemText 
+                primary={
+                  <Box display="flex" alignItems="center">
+                    <Typography variant="body2">{player.name}</Typography>
+                    {isPlayerHost && (
+                      <Chip 
+                        size="small" 
+                        label="Host" 
+                        color="warning" 
+                        sx={{ ml: 1, height: 16, fontSize: '0.6rem' }}
+                      />
+                    )}
+                    {player.isBot && (
+                      <Chip 
+                        size="small" 
+                        label="Bot" 
+                        color="default" 
+                        sx={{ ml: 1, height: 16, fontSize: '0.6rem' }}
+                      />
+                    )}
+                  </Box>
+                }
+                secondary={
+                  <Typography variant="caption" color="text.secondary">
+                    {player.isReady ? 'Hazır' : 'Bekliyor'}
+                  </Typography>
+                }
+              />
+            </ListItem>
+          );
+        })}
       </CompactPlayerList>
     );
   };
@@ -602,111 +740,493 @@ const GameBoard = () => {
       <Dialog
         open={showGameSummary}
         onClose={() => setShowGameSummary(false)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: '16px',
+            background: 'linear-gradient(135deg, rgba(32, 32, 60, 0.95) 0%, rgba(18, 18, 40, 0.97) 100%)',
+            backdropFilter: 'blur(10px)',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+            overflow: 'hidden',
+            border: '1px solid rgba(255, 255, 255, 0.1)'
+          }
+        }}
       >
-        <DialogTitle component="div">
-          <Typography variant="h5" align="center" fontWeight="bold">
+        {/* Konfeti efekti */}
+        <Box sx={{ position: 'absolute', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+          {[...Array(50)].map((_, i) => (
+            <Box 
+              key={i}
+              component="span"
+              sx={{
+                position: 'absolute',
+                top: `-10px`,
+                left: `${Math.random() * 100}%`,
+                width: `${Math.random() * 10 + 5}px`,
+                height: `${Math.random() * 10 + 10}px`,
+                borderRadius: '2px',
+                backgroundColor: [
+                  '#7c4dff', '#ff4081', '#00e5ff', '#76ff03', '#ffea00', 
+                  '#ff9100', '#f50057', '#651fff', '#00b0ff', '#c6ff00'
+                ][Math.floor(Math.random() * 10)],
+                animation: `fall ${Math.random() * 3 + 2}s linear ${Math.random() * 2}s infinite`,
+                transform: `rotate(${Math.random() * 360}deg)`,
+                opacity: Math.random(),
+                '@keyframes fall': {
+                  '0%': { transform: 'translateY(0) rotate(0deg)', opacity: 1 },
+                  '100%': { transform: `translateY(${window.innerHeight}px) rotate(360deg)`, opacity: 0 }
+                }
+              }}
+            />
+          ))}
+        </Box>
+        
+        <DialogTitle 
+          component="div" 
+          sx={{
+            textAlign: 'center',
+            pt: 4,
+            pb: 2,
+            position: 'relative',
+            zIndex: 1
+          }}
+        >
+          <Typography 
+            variant="h4" 
+            fontWeight="bold"
+            sx={{
+              backgroundImage: 'linear-gradient(45deg, #7c4dff, #00e5ff)',
+              backgroundClip: 'text',
+              color: 'transparent',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              mb: 1,
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              textShadow: '0px 2px 4px rgba(0,0,0,0.5)',
+              animation: 'pulse 1.5s infinite',
+              '@keyframes pulse': {
+                '0%': { transform: 'scale(1)' },
+                '50%': { transform: 'scale(1.05)' },
+                '100%': { transform: 'scale(1)' },
+              }
+            }}
+          >
             Oyun Sona Erdi
           </Typography>
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ p: 2 }}>
+          
             {drawnNumbers.length >= 90 && (
-              <Typography variant="subtitle1" align="center" color="primary" fontWeight="bold" mb={3}>
+            <Typography 
+              variant="h6" 
+              sx={{
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontWeight: 500,
+                animation: 'slideIn 0.8s ease-out',
+                '@keyframes slideIn': {
+                  '0%': { transform: 'translateY(20px)', opacity: 0 },
+                  '100%': { transform: 'translateY(0)', opacity: 1 },
+                }
+              }}
+            >
                 Tüm sayılar çekildi! (90/90)
               </Typography>
             )}
-            
-            <Box sx={{ textAlign: 'center', mb: 4 }}>
-              <EmojiEventsIcon color="primary" sx={{ fontSize: 60, mb: 2 }} />
+        </DialogTitle>
+        
+        <DialogContent sx={{ position: 'relative', zIndex: 1 }}>
+          <Box 
+            sx={{ 
+              p: { xs: 1, sm: 2, md: 3 },
+              animation: 'fadeIn 1s ease',
+              '@keyframes fadeIn': {
+                '0%': { opacity: 0 },
+                '100%': { opacity: 1 },
+              }
+            }}
+          >
+            <Box 
+              sx={{ 
+                textAlign: 'center', 
+                mb: 4,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center'
+              }}
+            >
+              <Box 
+                sx={{ 
+                  position: 'relative',
+                  display: 'inline-flex',
+                  mb: 4
+                }}
+              >
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: '-10px',
+                    left: '-10px',
+                    right: '-10px',
+                    bottom: '-10px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(45deg, #7c4dff, #00e5ff)',
+                    opacity: 0.3,
+                    animation: 'spin 4s linear infinite',
+                    '@keyframes spin': {
+                      '0%': { transform: 'rotate(0deg)' },
+                      '100%': { transform: 'rotate(360deg)' },
+                    }
+                  }}
+                />
+                <EmojiEventsIcon 
+                  color="primary" 
+                  sx={{ 
+                    fontSize: 80, 
+                    color: '#ffd700',
+                    animation: 'bounce 2s infinite',
+                    '@keyframes bounce': {
+                      '0%, 100%': { transform: 'translateY(0)' },
+                      '50%': { transform: 'translateY(-10px)' },
+                    }
+                  }} 
+                />
+              </Box>
               
-              <Typography variant="h6" mb={3}>
+              <Typography 
+                variant="h5" 
+                mb={4}
+                sx={{
+                  fontWeight: 'bold',
+                  letterSpacing: '1px',
+                  color: '#fff',
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                }}
+              >
                 Kazananlar
               </Typography>
               
-              <Grid container spacing={2}>
+              <Grid container spacing={3}>
                 <Grid item xs={12} sm={4}>
-                  <Paper sx={{ p: 2, backgroundColor: 'rgba(255, 183, 77, 0.2)' }}>
-                    <Typography variant="subtitle2" gutterBottom>
+                  <Box
+                    sx={{
+                      p: 3,
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, rgba(255, 183, 77, 0.2) 0%, rgba(255, 183, 77, 0.05) 100%)',
+                      border: '1px solid rgba(255, 183, 77, 0.3)',
+                      backdropFilter: 'blur(10px)',
+                      animation: 'slideUp 0.5s ease-out',
+                      transition: 'all 0.3s',
+                      '&:hover': {
+                        transform: 'translateY(-5px)',
+                        boxShadow: '0 5px 15px rgba(255, 183, 77, 0.3)'
+                      },
+                      '@keyframes slideUp': {
+                        '0%': { transform: 'translateY(20px)', opacity: 0 },
+                        '100%': { transform: 'translateY(0)', opacity: 1 },
+                      },
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: '160px',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      height: '100%',
+                    }}
+                  >
+                    <Typography 
+                      variant="subtitle1" 
+                      component="span" 
+                      sx={{ 
+                        fontWeight: 'bold',
+                        color: '#ffb74d',
+                        mb: 1,
+                        position: 'relative',
+                        zIndex: 1
+                      }}
+                    >
                       1. Çinko
                     </Typography>
-                    <Typography variant="body1" fontWeight="bold">
-                      {gameSummary.cinko1Winner ? 
-                        (gameSummary.cinko1Winner.playerName || 'Bilinmeyen Oyuncu') : 
-                        'Kazanan yok'}
+                    
+                    <Box sx={{ 
+                      position: 'relative',
+                      zIndex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center'
+                    }}>
+                      {gameSummary.cinko1Winner ? (
+                        <>
+                          <Avatar 
+                            src={gameSummary.cinko1Winner.isBot ? 
+                              `https://api.dicebear.com/6.x/bottts/svg?seed=${gameSummary.cinko1Winner.playerName || 'Bot'}&_t=${Date.now()}` : 
+                              `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="#2a2c4e"/><text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="middle" font-family="Arial" fill="white">${(gameSummary.cinko1Winner.playerName || "?").charAt(0).toUpperCase()}</text></svg>')}`} 
+                            sx={{ width: 60, height: 60, mb: 1, boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }} 
+                          />
+                          <Typography variant="body1" fontWeight="bold" color="white">
+                            {gameSummary.cinko1Winner.playerName || 'Bilinmeyen Oyuncu'}
                     </Typography>
-                  </Paper>
+                        </>
+                      ) : (
+                        <Typography variant="body1" color="text.secondary">
+                          Kazanan yok
+                        </Typography>
+                      )}
+                    </Box>
+                    
+                    {gameSummary.cinko1Winner && (
+                      <Box sx={{ 
+                        position: 'absolute',
+                        bottom: '-20px',
+                        left: '-20px',
+                        width: '100px',
+                        height: '100px',
+                        borderRadius: '50%',
+                        background: 'radial-gradient(circle, rgba(255,183,77,0.3) 0%, rgba(255,183,77,0) 70%)',
+                        zIndex: 0
+                      }} />
+                    )}
+                  </Box>
                 </Grid>
                 
                 <Grid item xs={12} sm={4}>
-                  <Paper sx={{ p: 2, backgroundColor: 'rgba(77, 182, 172, 0.2)' }}>
-                    <Typography variant="subtitle2" gutterBottom>
+                  <Box
+                    sx={{
+                      p: 3,
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, rgba(77, 182, 172, 0.2) 0%, rgba(77, 182, 172, 0.05) 100%)',
+                      border: '1px solid rgba(77, 182, 172, 0.3)',
+                      backdropFilter: 'blur(10px)',
+                      animation: 'slideUp 0.5s ease-out 0.1s',
+                      animationFillMode: 'both',
+                      transition: 'all 0.3s',
+                      '&:hover': {
+                        transform: 'translateY(-5px)',
+                        boxShadow: '0 5px 15px rgba(77, 182, 172, 0.3)'
+                      },
+                      '@keyframes slideUp': {
+                        '0%': { transform: 'translateY(20px)', opacity: 0 },
+                        '100%': { transform: 'translateY(0)', opacity: 1 },
+                      },
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: '160px',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      height: '100%',
+                    }}
+                  >
+                    <Typography 
+                      variant="subtitle1" 
+                      component="span" 
+                      sx={{ 
+                        fontWeight: 'bold',
+                        color: '#4db6ac',
+                        mb: 1,
+                        position: 'relative',
+                        zIndex: 1
+                      }}
+                    >
                       2. Çinko
                     </Typography>
-                    <Typography variant="body1" fontWeight="bold">
-                      {gameSummary.cinko2Winner ? 
-                        (gameSummary.cinko2Winner.playerName || 'Bilinmeyen Oyuncu') :
-                        'Kazanan yok'}
+                    
+                    <Box sx={{ 
+                      position: 'relative',
+                      zIndex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center'
+                    }}>
+                      {gameSummary.cinko2Winner ? (
+                        <>
+                          <Avatar 
+                            src={gameSummary.cinko2Winner.isBot ? 
+                              `https://api.dicebear.com/6.x/bottts/svg?seed=${gameSummary.cinko2Winner.playerName || 'Bot'}&_t=${Date.now()}` : 
+                              `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="#2a2c4e"/><text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="middle" font-family="Arial" fill="white">${(gameSummary.cinko2Winner.playerName || "?").charAt(0).toUpperCase()}</text></svg>')}`} 
+                            sx={{ width: 60, height: 60, mb: 1, boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }} 
+                          />
+                          <Typography variant="body1" fontWeight="bold" color="white">
+                            {gameSummary.cinko2Winner.playerName || 'Bilinmeyen Oyuncu'}
                     </Typography>
-                  </Paper>
+                        </>
+                      ) : (
+                        <Typography variant="body1" color="text.secondary">
+                          Kazanan yok
+                        </Typography>
+                      )}
+                    </Box>
+                    
+                    {gameSummary.cinko2Winner && (
+                      <Box sx={{ 
+                        position: 'absolute',
+                        bottom: '-20px',
+                        left: '-20px',
+                        width: '100px',
+                        height: '100px',
+                        borderRadius: '50%',
+                        background: 'radial-gradient(circle, rgba(77,182,172,0.3) 0%, rgba(77,182,172,0) 70%)',
+                        zIndex: 0
+                      }} />
+                    )}
+                  </Box>
                 </Grid>
                 
                 <Grid item xs={12} sm={4}>
-                  <Paper sx={{ p: 2, backgroundColor: 'rgba(123, 31, 162, 0.2)' }}>
-                    <Typography variant="subtitle2" gutterBottom>
+                  <Box
+                    sx={{
+                      p: 3,
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, rgba(123, 31, 162, 0.2) 0%, rgba(123, 31, 162, 0.05) 100%)',
+                      border: '1px solid rgba(123, 31, 162, 0.3)',
+                      backdropFilter: 'blur(10px)',
+                      animation: 'slideUp 0.5s ease-out 0.2s',
+                      animationFillMode: 'both',
+                      transition: 'all 0.3s',
+                      '&:hover': {
+                        transform: 'translateY(-5px)',
+                        boxShadow: '0 5px 15px rgba(123, 31, 162, 0.3)'
+                      },
+                      '@keyframes slideUp': {
+                        '0%': { transform: 'translateY(20px)', opacity: 0 },
+                        '100%': { transform: 'translateY(0)', opacity: 1 },
+                      },
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: '160px',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      height: '100%',
+                    }}
+                  >
+                    <Typography 
+                      variant="subtitle1" 
+                      component="span" 
+                      sx={{ 
+                        fontWeight: 'bold',
+                        color: '#ba68c8',
+                        mb: 1,
+                        position: 'relative',
+                        zIndex: 1
+                      }}
+                    >
                       Tombala
                     </Typography>
-                    <Typography variant="body1" fontWeight="bold">
-                      {gameSummary.tombalaWinner ? 
-                        (gameSummary.tombalaWinner.playerName || 'Bilinmeyen Oyuncu') :
-                        'Kazanan yok'}
+                    
+                    <Box sx={{ 
+                      position: 'relative',
+                      zIndex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center'
+                    }}>
+                      {gameSummary.tombalaWinner ? (
+                        <>
+                          <Avatar 
+                            src={gameSummary.tombalaWinner.isBot ? 
+                              `https://api.dicebear.com/6.x/bottts/svg?seed=${gameSummary.tombalaWinner.playerName || 'Bot'}&_t=${Date.now()}` : 
+                              `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="#2a2c4e"/><text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="middle" font-family="Arial" fill="white">${(gameSummary.tombalaWinner.playerName || "?").charAt(0).toUpperCase()}</text></svg>')}`}
+                            sx={{ 
+                              width: 60, 
+                              height: 60, 
+                              mb: 1, 
+                              boxShadow: '0 0 20px rgba(186,104,200,0.6)',
+                              border: '2px solid #ba68c8'
+                            }} 
+                          />
+                          <Typography variant="body1" fontWeight="bold" color="white">
+                            {gameSummary.tombalaWinner.playerName || 'Bilinmeyen Oyuncu'}
                     </Typography>
-                  </Paper>
+                        </>
+                      ) : (
+                        <Typography variant="body1" color="text.secondary">
+                          Kazanan yok
+                        </Typography>
+                      )}
+                    </Box>
+                    
+                    {gameSummary.tombalaWinner && (
+                      <Box sx={{ 
+                        position: 'absolute',
+                        bottom: '-20px',
+                        left: '-20px',
+                        width: '100px',
+                        height: '100px',
+                        borderRadius: '50%',
+                        background: 'radial-gradient(circle, rgba(186,104,200,0.3) 0%, rgba(186,104,200,0) 70%)',
+                        zIndex: 0
+                      }} />
+                    )}
+                  </Box>
                 </Grid>
               </Grid>
-            </Box>
-            
-            <Typography variant="subtitle2" gutterBottom align="center">
+              
+              {/* Oyun İstatistikleri */}
+              <Box 
+                sx={{
+                  mt: 4,
+                  p: 2,
+                  borderRadius: '12px',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  width: '100%',
+                  animation: 'fadeIn 1s ease 0.5s both'
+                }}
+              >
+                <Typography variant="subtitle1" align="center" mb={2} fontWeight="medium" color="primary.main">
               Oyun İstatistikleri
             </Typography>
             
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Typography variant="body2">Çekilen Sayılar:</Typography>
-              <Typography variant="body2" fontWeight="bold">{drawnNumbers.length}/90</Typography>
-            </Box>
+                <Grid container spacing={2} textAlign="center">
+                  <Grid item xs={4}>
+                    <Typography variant="caption" color="text.secondary">Çekilen Sayılar</Typography>
+                    <Typography variant="h6" fontWeight="bold">
+                      {drawnNumbers.length}/90
+                    </Typography>
+                  </Grid>
             
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Typography variant="body2">Oyuncu Sayısı:</Typography>
-              <Typography variant="body2" fontWeight="bold">{players.length}</Typography>
+                  <Grid item xs={4}>
+                    <Typography variant="caption" color="text.secondary">Oyuncular</Typography>
+                    <Typography variant="h6" fontWeight="bold">
+                      {players ? players.length : 0}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={4}>
+                    <Typography variant="caption" color="text.secondary">Oyun Süresi</Typography>
+                    <Typography variant="h6" fontWeight="bold">
+                      {Math.floor(drawnNumbers.length * 0.8)} dk
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Box>
             </Box>
           </Box>
         </DialogContent>
-        <DialogActions>
+        
+        <DialogActions sx={{ p: 3, justifyContent: 'center', position: 'relative', zIndex: 1 }}>
           <Button 
             variant="contained" 
-            color="primary"
-            onClick={() => {
-              // Hard-coded URL yerine parent frame'e mesaj gönder
-              if (window !== window.parent) {
-                // iframe içinde çalışıyorsa ana pencereye mesaj gönder
-                window.parent.postMessage({ 
-                  type: 'NAVIGATE_HOME', 
-                  source: 'tombala-game',
-                  timestamp: Date.now() 
-                }, '*');
-                console.log('Ana sayfaya dönmek için parent pencereye mesaj gönderildi');
-              } else {
-                // Direkt erişim durumunda (iframe dışı)
-                window.location.href = '/tombala';
+            onClick={() => setShowGameSummary(false)}
+            sx={{
+              borderRadius: '24px',
+              background: 'linear-gradient(45deg, #7c4dff, #448aff)',
+              px: 4,
+              py: 1,
+              fontWeight: 'bold',
+              letterSpacing: '1px',
+              boxShadow: '0 4px 20px rgba(124, 77, 255, 0.3)',
+              '&:hover': {
+                background: 'linear-gradient(45deg, #6a3dff, #2979ff)',
+                boxShadow: '0 6px 25px rgba(124, 77, 255, 0.4)',
               }
-              // Modal'ı kapat
-              setShowGameSummary(false);
             }}
-            fullWidth
-            startIcon={<HomeIcon />}
           >
-            Ana Sayfa
+            Tamam
           </Button>
         </DialogActions>
       </Dialog>
@@ -718,13 +1238,499 @@ const GameBoard = () => {
     setIsPlayerListOpen(prev => !prev);
   }, []);
 
+  // Ayarları lobi ayarlarıyla senkronize et
+  useEffect(() => {
+    setTempSettings(lobbySettings);
+  }, [lobbySettings]);
+
+  // Ayarları kaydet
+  const saveSettings = () => {
+    updateLobbySettings(tempSettings);
+    setShowSettingsModal(false);
+  };
+
+  // Ayarlar modalı
+  const renderSettingsModal = () => {
+    return (
+      <Dialog
+        open={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            background: 'linear-gradient(145deg, rgba(20, 20, 40, 0.95), rgba(30, 30, 60, 0.95))',
+            backdropFilter: 'blur(10px)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          py: 2, 
+          background: 'linear-gradient(90deg, #7c4dff, #6e45e2)', 
+          color: 'white',
+          boxShadow: '0 2px 10px rgba(124, 77, 255, 0.2)'
+        }}>
+          <Box display="flex" alignItems="center">
+            <SettingsIcon sx={{ mr: 1.5 }} />
+            <Typography variant="h6" fontWeight="bold">Oyun Ayarları</Typography>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ p: 3 }}>
+            {/* Kategorize edilmiş ayarlar */}
+            <Box sx={{ 
+              mb: 4, 
+              p: 2, 
+              bgcolor: 'rgba(124, 77, 255, 0.08)', 
+              borderRadius: 2,
+              border: '1px solid rgba(124, 77, 255, 0.2)'
+            }}>
+              <Typography 
+                variant="subtitle1" 
+                fontWeight="bold" 
+                sx={{ 
+                  mb: 2, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  color: '#7c4dff'
+                }}
+              >
+                <TimerIcon sx={{ mr: 1, fontSize: '1.2rem' }} />
+                Oyun Hızı
+              </Typography>
+              <RadioGroup
+                value={tempSettings.gameSpeed}
+                onChange={(e) => setTempSettings({
+                  ...tempSettings,
+                  gameSpeed: e.target.value
+                })}
+                sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  '& .MuiFormControlLabel-root': { 
+                    m: 0,
+                    width: '32%'
+                  }
+                }}
+              >
+                <FormControlLabel
+                  value="slow"
+                  control={
+                    <Radio 
+                      sx={{
+                        color: 'rgba(124, 77, 255, 0.6)',
+                        '&.Mui-checked': {
+                          color: '#7c4dff',
+                        }
+                      }}
+                    />
+                  }
+                  label={
+                    <Box 
+                      sx={{ 
+                        textAlign: 'center', 
+                        p: 1, 
+                        bgcolor: tempSettings.gameSpeed === 'slow' ? 'rgba(124, 77, 255, 0.15)' : 'transparent',
+                        borderRadius: 1,
+                        border: tempSettings.gameSpeed === 'slow' ? '1px solid rgba(124, 77, 255, 0.3)' : '1px solid transparent',
+                        transition: 'all 0.2s ease',
+                        width: '100%'
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight={tempSettings.gameSpeed === 'slow' ? 'bold' : 'normal'}>
+                        Yavaş
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        15 sn
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ alignItems: 'flex-start' }}
+                />
+                <FormControlLabel
+                  value="normal"
+                  control={
+                    <Radio 
+                      sx={{
+                        color: 'rgba(124, 77, 255, 0.6)',
+                        '&.Mui-checked': {
+                          color: '#7c4dff',
+                        }
+                      }}
+                    />
+                  }
+                  label={
+                    <Box 
+                      sx={{ 
+                        textAlign: 'center', 
+                        p: 1, 
+                        bgcolor: tempSettings.gameSpeed === 'normal' ? 'rgba(124, 77, 255, 0.15)' : 'transparent',
+                        borderRadius: 1,
+                        border: tempSettings.gameSpeed === 'normal' ? '1px solid rgba(124, 77, 255, 0.3)' : '1px solid transparent',
+                        transition: 'all 0.2s ease',
+                        width: '100%'
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight={tempSettings.gameSpeed === 'normal' ? 'bold' : 'normal'}>
+                        Normal
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        10 sn
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ alignItems: 'flex-start' }}
+                />
+                <FormControlLabel
+                  value="fast"
+                  control={
+                    <Radio 
+                      sx={{
+                        color: 'rgba(124, 77, 255, 0.6)',
+                        '&.Mui-checked': {
+                          color: '#7c4dff',
+                        }
+                      }}
+                    />
+                  }
+                  label={
+                    <Box 
+                      sx={{ 
+                        textAlign: 'center', 
+                        p: 1, 
+                        bgcolor: tempSettings.gameSpeed === 'fast' ? 'rgba(124, 77, 255, 0.15)' : 'transparent',
+                        borderRadius: 1,
+                        border: tempSettings.gameSpeed === 'fast' ? '1px solid rgba(124, 77, 255, 0.3)' : '1px solid transparent',
+                        transition: 'all 0.2s ease',
+                        width: '100%'
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight={tempSettings.gameSpeed === 'fast' ? 'bold' : 'normal'}>
+                        Hızlı
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        5 sn
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ alignItems: 'flex-start' }}
+                />
+              </RadioGroup>
+            </Box>
+
+            <Box sx={{ 
+              mb: 4, 
+              p: 2, 
+              bgcolor: 'rgba(124, 77, 255, 0.08)', 
+              borderRadius: 2,
+              border: '1px solid rgba(124, 77, 255, 0.2)'
+            }}>
+              <Typography 
+                variant="subtitle1" 
+                fontWeight="bold" 
+                sx={{ 
+                  mb: 2, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  color: '#7c4dff'
+                }}
+              >
+                <PersonIcon sx={{ mr: 1, fontSize: '1.2rem' }} />
+                Manuel Sayı Çekme İzni
+              </Typography>
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: 'column',
+                gap: 1,
+              }}>
+                <Paper 
+                  elevation={0} 
+                  onClick={() => setTempSettings({
+                    ...tempSettings,
+                    manualNumberDrawPermission: 'host-only'
+                  })}
+                  sx={{ 
+                    p: 2, 
+                    cursor: 'pointer',
+                    bgcolor: tempSettings.manualNumberDrawPermission === 'host-only' 
+                      ? 'rgba(124, 77, 255, 0.15)' 
+                      : 'rgba(30, 30, 60, 0.3)',
+                    border: tempSettings.manualNumberDrawPermission === 'host-only'
+                      ? '1px solid rgba(124, 77, 255, 0.3)'
+                      : '1px solid rgba(255, 255, 255, 0.05)',
+                    borderRadius: 2,
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      bgcolor: 'rgba(124, 77, 255, 0.1)',
+                      borderColor: 'rgba(124, 77, 255, 0.2)'
+                    }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Radio 
+                        checked={tempSettings.manualNumberDrawPermission === 'host-only'}
+                        sx={{
+                          p: 0.5,
+                          mr: 1,
+                          color: 'rgba(124, 77, 255, 0.6)',
+                          '&.Mui-checked': {
+                            color: '#7c4dff',
+                          }
+                        }}
+                      />
+                      <Box>
+                        <Typography variant="body2" fontWeight={tempSettings.manualNumberDrawPermission === 'host-only' ? 'bold' : 'normal'}>
+                          Sadece Host
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Sadece lobi sahibi manuel sayı çekebilir (daha kontrollü oyun için)
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Avatar 
+                      sx={{ 
+                        width: 36, 
+                        height: 36, 
+                        bgcolor: tempSettings.manualNumberDrawPermission === 'host-only' ? '#7c4dff' : 'rgba(124, 77, 255, 0.3)'
+                      }}
+                    >
+                      <PeopleIcon sx={{ fontSize: '1.2rem' }} />
+                    </Avatar>
+                  </Box>
+                </Paper>
+
+                <Paper 
+                  elevation={0} 
+                  onClick={() => setTempSettings({
+                    ...tempSettings,
+                    manualNumberDrawPermission: 'all-players'
+                  })}
+                  sx={{ 
+                    p: 2, 
+                    cursor: 'pointer',
+                    bgcolor: tempSettings.manualNumberDrawPermission === 'all-players' 
+                      ? 'rgba(124, 77, 255, 0.15)' 
+                      : 'rgba(30, 30, 60, 0.3)',
+                    border: tempSettings.manualNumberDrawPermission === 'all-players'
+                      ? '1px solid rgba(124, 77, 255, 0.3)'
+                      : '1px solid rgba(255, 255, 255, 0.05)',
+                    borderRadius: 2,
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      bgcolor: 'rgba(124, 77, 255, 0.1)',
+                      borderColor: 'rgba(124, 77, 255, 0.2)'
+                    }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Radio 
+                        checked={tempSettings.manualNumberDrawPermission === 'all-players'}
+                        sx={{
+                          p: 0.5,
+                          mr: 1,
+                          color: 'rgba(124, 77, 255, 0.6)',
+                          '&.Mui-checked': {
+                            color: '#7c4dff',
+                          }
+                        }}
+                      />
+                      <Box>
+                        <Typography variant="body2" fontWeight={tempSettings.manualNumberDrawPermission === 'all-players' ? 'bold' : 'normal'}>
+                          Tüm Oyuncular
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontStyle: 'italic' }}>
+                          Not: Manuel sayı çekme, otomatik çekme özelliği duraklatıldığında bile çalışır. Özel durumlarda sayı çekmek için kullanılabilir.
+                        </Typography>
+                        
+                        <Typography variant="caption" color="info.main" sx={{ display: 'block', mt: 1, fontStyle: 'italic' }}>
+                          Not: Bazı sunucu sürümleri "Tüm Oyuncular" ayarını desteklemeyebilir. Bu durumda lobi sahibi dışındakilerin sayı çekme işlemleri başarısız olacaktır.
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Avatar 
+                      sx={{ 
+                        width: 36, 
+                        height: 36, 
+                        bgcolor: tempSettings.manualNumberDrawPermission === 'all-players' ? '#7c4dff' : 'rgba(124, 77, 255, 0.3)'
+                      }}
+                    >
+                      <GroupIcon sx={{ fontSize: '1.2rem' }} />
+                    </Avatar>
+                  </Box>
+                </Paper>
+              </Box>
+              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
+                {isHost 
+                 ? 'Host olarak sayı çekebilirsiniz'
+                 : (lobbySettings && lobbySettings.manualNumberDrawPermission === 'all-players')
+                   ? 'Tüm oyuncular sayı çekebilir'
+                   : 'Sadece host sayı çekebilir'
+                }
+              </Typography>
+            </Box>
+
+            <Box sx={{ 
+              p: 2, 
+              bgcolor: 'rgba(124, 77, 255, 0.08)', 
+              borderRadius: 2,
+              border: '1px solid rgba(124, 77, 255, 0.2)'
+            }}>
+              <Typography 
+                variant="subtitle1" 
+                fontWeight="bold" 
+                sx={{ 
+                  mb: 2, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  color: '#7c4dff'
+                }}
+              >
+                <VolumeUpIcon sx={{ mr: 1, fontSize: '1.2rem' }} />
+                Ses Ayarları
+              </Typography>
+              <Paper 
+                elevation={0} 
+                onClick={() => setTempSettings({
+                  ...tempSettings,
+                  enableMusic: !tempSettings.enableMusic
+                })}
+                sx={{ 
+                  p: 2, 
+                  cursor: 'pointer',
+                  bgcolor: 'rgba(30, 30, 60, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: 2,
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    bgcolor: 'rgba(124, 77, 255, 0.1)',
+                    borderColor: 'rgba(124, 77, 255, 0.2)'
+                  }
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Box>
+                      <Typography variant="body2">
+                        Oyun Müziği
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Oyun sırasında müzik çalınsın mı?
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Switch 
+                    checked={tempSettings.enableMusic} 
+                    sx={{
+                      '& .MuiSwitch-switchBase.Mui-checked': {
+                        color: '#7c4dff',
+                        '& + .MuiSwitch-track': {
+                          backgroundColor: 'rgba(124, 77, 255, 0.5)',
+                        },
+                      },
+                    }}
+                  />
+                </Box>
+              </Paper>
+            </Box>
+          </Box>
+        </DialogContent>
+
+        <DialogActions sx={{ 
+          px: 3, 
+          py: 2, 
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          justifyContent: 'space-between'
+        }}>
+          <Button 
+            onClick={() => setShowSettingsModal(false)}
+            variant="outlined"
+            startIcon={<CancelIcon />}
+            sx={{ 
+              borderColor: 'rgba(255, 255, 255, 0.3)',
+              color: 'rgba(255, 255, 255, 0.7)',
+              '&:hover': {
+                borderColor: 'rgba(255, 255, 255, 0.5)',
+                bgcolor: 'rgba(255, 255, 255, 0.05)'
+              }
+            }}
+          >
+            İptal
+          </Button>
+          <Button 
+            variant="contained" 
+            color="primary" 
+            onClick={saveSettings}
+            startIcon={<CheckCircleIcon />}
+            sx={{ 
+              background: 'linear-gradient(90deg, #7c4dff, #6e45e2)',
+              boxShadow: '0 4px 12px rgba(124, 77, 255, 0.3)',
+              '&:hover': {
+                background: 'linear-gradient(90deg, #8c5dff, #7e55f2)',
+                boxShadow: '0 6px 16px rgba(124, 77, 255, 0.4)',
+              }
+            }}
+          >
+            Ayarları Kaydet
+          </Button>
+        </DialogActions>
+      </Dialog>
+    );
+  };
+
   return (
     <Container maxWidth="xl" sx={{ py: 0.25, height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <AppBar position="static" color="transparent" elevation={0} component="header" sx={{ mb: 0.25 }}>
         <Toolbar sx={{ display: 'flex', justifyContent: 'space-between', minHeight: '32px', py: 0 }}>
-          <Typography variant="body1" component="h1" fontWeight="medium">
-            Tombala Oyunu
+          <Box
+            sx={{
+              background: 'linear-gradient(45deg, #ff4081, #7c4dff, #ff4081)',
+              backgroundSize: '200% 200%',
+              borderRadius: '8px',
+              padding: '4px 12px',
+              display: 'inline-block',
+              boxShadow: '0 4px 15px rgba(124, 77, 255, 0.3)',
+              animation: 'gradient 3s ease infinite',
+              '@keyframes gradient': {
+                '0%': {
+                  backgroundPosition: '0% 50%'
+                },
+                '50%': {
+                  backgroundPosition: '100% 50%'
+                },
+                '100%': {
+                  backgroundPosition: '0% 50%'
+                }
+              }
+            }}
+          >
+            <Typography 
+              variant="h6" 
+              component="h1" 
+              fontWeight="bold"
+              sx={{
+                fontFamily: 'Oxanium',
+                background: 'linear-gradient(to right, #ffffff, #e1e1fb)',
+                backgroundClip: 'text',
+                textFillColor: 'transparent',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                letterSpacing: '1px',
+                textShadow: '0px 4px 8px rgba(0, 0, 0, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <ViewComfyIcon sx={{ mr: 1, fontSize: '1.25rem' }} />
+              TOMBALA
           </Typography>
+          </Box>
           <Box display="flex" alignItems="center" gap={0.5}>
             <StatusBadge status={isOnline ? 'online' : 'offline'} variant="dot" sx={{ '& .MuiBadge-badge': { width: '6px', height: '6px', minWidth: '6px' } }}>
               <Typography variant="caption">
@@ -810,18 +1816,19 @@ const GameBoard = () => {
                     >
                       Oyunu Başlat
                     </Button>
-                  ) : (
-                    <Button 
-                      variant="outlined" 
-                      color="primary" 
-                      fullWidth
-                      onClick={togglePause}
-                      disabled={!isOnline || gameStatus === 'finished'}
-                      size="small"
-                    >
-                      {isPaused ? 'Devam Et' : 'Duraklat'}
-                    </Button>
-                  )}
+                  ) : null}
+                  {/* Ayarlar butonu - Sadece host için */}
+                  <Button
+                    variant="outlined"
+                    color="secondary"
+                    fullWidth
+                    onClick={() => setShowSettingsModal(true)}
+                    startIcon={<SettingsIcon />}
+                    size="small"
+                    sx={{ mt: 1 }}
+                  >
+                    Ayarlar
+                  </Button>
                 </Box>
               )}
             </StyledPaper>
@@ -891,17 +1898,17 @@ const GameBoard = () => {
                     size="small"
                   />
                   
-                  {/* Otomatik sayı çekme kontrolü */}
-                  {!isPaused && (
+                  {/* Otomatik sayı çekme kontrolü - Sadece host için görünür */}
+                  {isHost && (
                     <Button
                       variant="outlined"
                       size="small"
-                      color={autoDrawEnabled ? "error" : "success"}
+                      color={autoDrawEnabled ? "success" : "warning"}
                       onClick={toggleAutoDrawing}
-                      startIcon={autoDrawEnabled ? <PauseIcon /> : <PlayArrowIcon />}
+                      startIcon={autoDrawEnabled ? <PlayArrowIcon /> : <PauseIcon />}
                       sx={{ minWidth: 'auto', fontSize: '0.7rem', py: 0.5 }}
                     >
-                      {autoDrawEnabled ? "Otomatiği Durdur" : "Otomatik Başlat"}
+                      {autoDrawEnabled ? "Otomatik Açık" : "Otomatik Kapalı"}
                     </Button>
                   )}
                 </Box>
@@ -915,19 +1922,31 @@ const GameBoard = () => {
                   <Typography variant="subtitle2" fontWeight="medium">Son 10 Sayı</Typography>
                   
                   {/* Geri sayım sayacı */}
-                  {gameStatus === 'playing' && !isPaused && autoDrawEnabled && (
+                  {gameStatus === 'playing' && (
                     <Box display="flex" alignItems="center" gap={1}>
-                      <TimerIcon fontSize="small" color="action" />
+                      <TimerIcon fontSize="small" color={isPaused ? "disabled" : "action"} />
                       <CountdownCircle>
                         <CircularProgress
                           variant="determinate"
-                          value={(countdownTimer / 10) * 100}
+                          value={isPaused ? 0 : (countdownTimer / (lobbySettings.gameSpeed === 'slow' ? 15 : lobbySettings.gameSpeed === 'fast' ? 5 : 10)) * 100}
                           size={36}
                           thickness={4}
-                          sx={{ position: 'absolute', color: 'primary.main' }}
+                          sx={{ 
+                            position: 'absolute', 
+                            color: isPaused ? 'text.disabled' : 'primary.main',
+                            opacity: isPaused ? 0.5 : 1,
+                            animation: isPaused ? 'none' : undefined
+                          }}
                         />
-                        <Typography variant="caption" fontWeight="bold">
-                          {countdownTimer}
+                        <Typography 
+                          variant="caption" 
+                          fontWeight="bold"
+                          sx={{ 
+                            color: isPaused ? 'text.disabled' : 'text.primary',
+                            opacity: isPaused ? 0.7 : 1
+                          }}
+                        >
+                          {isPaused ? <PauseIcon fontSize="small" /> : countdownTimer}
                         </Typography>
                       </CountdownCircle>
                     </Box>
@@ -938,8 +1957,8 @@ const GameBoard = () => {
                   {lastTenNumbers.length > 0 ? lastTenNumbers.map((num, index) => (
                     <NumberCircle 
                       key={`recent-${num}`} 
-                      marked={true}
-                      highlight={index === 0}
+                      marked={index === 0 ? true : true}
+                      highlight={index === 0 ? true : false}
                     >
                       <Typography variant={index === 0 ? "h6" : "body2"} fontWeight={index === 0 ? "bold" : "normal"}>
                         {num}
@@ -962,22 +1981,41 @@ const GameBoard = () => {
                 {gameStatus === 'playing' && (
                   <CurrentNumberDisplay>
                     <Typography variant="caption" fontWeight="medium">Son Çekilen Sayı</Typography>
-                    <NumberCircle>
-                      <Typography variant="h4" fontWeight="bold">
+                    <NumberCircle marked={false} highlight={false} big={true}>
+                      <Typography variant="h3" fontWeight="bold" sx={{ fontSize: '2.5rem', lineHeight: 1 }}>
                         {currentNumber || '-'}
                       </Typography>
                     </NumberCircle>
                     {/* Sayı çekme butonu */}
-                    <Button 
-                      variant="contained" 
-                      color="primary"
-                      disabled={gameStatus !== 'playing' || isPaused}
-                      onClick={hookDrawNextNumber}
-                      sx={{ mb: 1 }}
-                      size="small"
-                    >
-                      Sonraki Sayı
-                    </Button>
+                    {(isHost || (lobbySettings && lobbySettings.manualNumberDrawPermission === 'all-players')) && (
+                      <Box sx={{ mb: 2, textAlign: 'center' }}>
+                        <Button
+                          variant="contained"
+                          color="secondary"
+                          disabled={gameStatus !== 'playing'}
+                          onClick={drawNextNumber}
+                          sx={{ 
+                            mb: 1,
+                            width: '100%',
+                            fontSize: '0.7rem',
+                            whiteSpace: 'nowrap',
+                            padding: '6px 8px',
+                          }}
+                          size="small"
+                          startIcon={<AutorenewIcon />}
+                        >
+                          Manuel Sayı Çek
+                        </Button>
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
+                          {isHost 
+                            ? 'Host olarak sayı çekebilirsiniz'
+                            : (lobbySettings && lobbySettings.manualNumberDrawPermission === 'all-players')
+                              ? 'Tüm oyuncular sayı çekebilir'
+                              : 'Sadece host sayı çekebilir'
+                          }
+                        </Typography>
+                      </Box>
+                    )}
                   </CurrentNumberDisplay>
                 )}
                 
@@ -1104,7 +2142,9 @@ const GameBoard = () => {
         </Alert>
       </Snackbar>
 
-  
+      {/* Ayarlar modalı */}
+      {renderSettingsModal()}
+
     </Container>
   );
 };

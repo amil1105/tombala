@@ -40,7 +40,9 @@ const SOCKET_EVENTS = {
   WINNER_ANNOUNCED: 'winner_announced',
   ERROR: 'error',
   CINKO1_CLAIMED: 'cinko1_claimed',
-  CINKO2_CLAIMED: 'cinko2_claimed'
+  CINKO2_CLAIMED: 'cinko2_claimed',
+  UPDATE_LOBBY_SETTINGS: 'update_lobby_settings',
+  LOBBY_SETTINGS_UPDATED: 'lobby_settings_updated'
 };
 
 // Socket bağlantı URL'sini düzelt
@@ -48,10 +50,15 @@ const SOCKET_URL = process.env.NODE_ENV === 'production'
   ? window.location.origin 
   : 'http://localhost:5000';
 
+// WebSocket URL'ini düzelt
+const WS_URL = process.env.NODE_ENV === 'production'
+  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+  : 'ws://localhost:5000/ws';
+
 // API base URL'ini düzelt
 const API_BASE_URL = process.env.NODE_ENV === 'production'
   ? '/api'
-  : 'http://localhost:5000/api';
+  : '/api'; // Vite proxy kullanıldığı için doğrudan /api kullanılabilir
 
 // Akıllı yeniden deneme mekanizması ekle
 const fetchWithRetry = async (url, options, retries = 3) => {
@@ -149,15 +156,115 @@ export const useTombala = () => {
   const [players, setPlayers] = useState([]); 
   const [messages, setMessages] = useState([]); 
   const [isPaused, setIsPaused] = useState(false);
+  const [autoDrawEnabled, setAutoDrawEnabled] = useState(true); // Otomatik sayı çekme durumu
+  const [countdownTimer, setCountdownTimer] = useState(10); // Geri sayım sayacı
   const [drawingCompleted, setDrawingCompleted] = useState(false);
   const [drawingNumber, setDrawingNumber] = useState(false);
   const [lastDrawTime, setLastDrawTime] = useState(0); // Son sayı çekme zamanı
+  const [lobbyData, setLobbyData] = useState(null); // Lobi verisini tutacak state
+  // Ses ayarları için state'ler ekle
+  const [soundEnabled, setSoundEnabled] = useState(true); // Ses varsayılan olarak açık
+  
+  // Lobi ayarları için state
+  const [lobbySettings, setLobbySettings] = useState(() => {
+    // Yerel depolamadan ayarları almaya çalış
+    try {
+      const savedSettings = localStorage.getItem('tombala_lobby_settings');
+      if (savedSettings) {
+        return JSON.parse(savedSettings);
+      }
+    } catch (error) {
+      console.error('Lobi ayarları yüklenemedi:', error);
+    }
+    
+    // Varsayılan ayarlar
+    return {
+      manualNumberDrawPermission: 'host-only', // 'host-only', 'all-players'
+      gameSpeed: 'normal', // 'slow', 'normal', 'fast'
+      enableMusic: true
+    };
+  });
+  
+  // LobbySettings değiştiğinde localStorage'a kaydet
+  useEffect(() => {
+    try {
+      localStorage.setItem('tombala_lobby_settings', JSON.stringify(lobbySettings));
+      // Manuel sayı çekme iznini ayrıca kaydet (reconnect için)
+      localStorage.setItem('tombala_manual_draw_permission', lobbySettings.manualNumberDrawPermission);
+    } catch (error) {
+      console.error('Lobi ayarları kaydedilemedi:', error);
+    }
+  }, [lobbySettings]);
   
   // useRef değerleri
   const initialDataLoaded = useRef(false);
   const gameStartTime = useRef(Date.now());
   const reconnectAttemptsRef = useRef(0);
   const drawTimeoutRef = useRef(null);
+  const audioRef = useRef(null); // Ses için ref
+
+  // Ses çalma fonksiyonu
+  const playNumberSound = useCallback(() => {
+    try {
+      if (!soundEnabled) return;
+      
+      // Web Audio API kullanarak basit bir bip sesi oluştur
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 800; // 800 Hz
+      gainNode.gain.value = 0.1; // Ses seviyesi
+      
+      oscillator.start();
+      
+      // 200ms sonra sesi durdur
+      setTimeout(() => {
+        oscillator.stop();
+        // İkinci bip sesi
+        setTimeout(() => {
+          const oscillator2 = audioContext.createOscillator();
+          oscillator2.connect(gainNode);
+          oscillator2.type = 'sine';
+          oscillator2.frequency.value = 1000; // 1000 Hz
+          oscillator2.start();
+          
+          // 200ms sonra ikinci sesi durdur
+          setTimeout(() => {
+            oscillator2.stop();
+          }, 200);
+        }, 100);
+      }, 200);
+    } catch (error) {
+      console.error('Ses çalma fonksiyonunda hata:', error);
+    }
+  }, [soundEnabled]);
+
+  // Ses durumunu değiştir
+  const toggleSound = useCallback(() => {
+    setSoundEnabled(prev => !prev);
+    try {
+      localStorage.setItem('tombala_sound_enabled', (!soundEnabled).toString());
+    } catch (error) {
+      console.error('Ses ayarı kaydedilemedi:', error);
+    }
+  }, [soundEnabled]);
+
+  // Ses ayarını localStorage'dan yükle
+  useEffect(() => {
+    try {
+      const savedSoundSetting = localStorage.getItem('tombala_sound_enabled');
+      if (savedSoundSetting !== null) {
+        setSoundEnabled(savedSoundSetting === 'true');
+      }
+    } catch (error) {
+      console.error('Ses ayarı yüklenemedi:', error);
+    }
+  }, []);
 
   // Bir sütunda sayının daha önce kullanılıp kullanılmadığını kontrol et
   const isNumberUsedInColumn = (card, col, number) => {
@@ -619,93 +726,47 @@ export const useTombala = () => {
       localStorage.removeItem('tombala_demo_mode');
     }
     
+    // Socket bağlantısını kur
     const connectSocket = () => {
       try {
-        // Socket bağlantısını başlatmaya çalış
-        const socketConn = typeof initializeSocket === 'function' 
-          ? initializeSocket({
-              lobbyId: finalLobbyId,
-              playerId: playerId,
-              playerName: playerName
-            })
-          : null;
-      
-      if (socketConn) {
-        setSocketInstance(socketConn);
-          reconnectAttempts = 0; // Başarılı bağlantı durumunda sıfırla
-        console.log('useTombala: Socket bağlantısı başarıyla kuruldu');
-          setIsOnline(true);
-          
-          // Bağlantı kesilme durumunu dinle
-          socketConn.on('disconnect', (reason) => {
-            console.warn('useTombala: Socket bağlantısı kesildi:', reason);
-            setIsOnline(false);
-            
-            // Belirli durumlarda otomatik yeniden bağlanma dene
-            if (reason === 'io server disconnect' || reason === 'transport close') {
-              // Yeniden bağlanma zamanlaması
-              setTimeout(() => {
-                if (reconnectAttempts < maxReconnectAttempts) {
-                  console.log(`useTombala: Yeniden bağlanma deneniyor (${reconnectAttempts + 1}/${maxReconnectAttempts})...`);
-                  connectSocket(); // Yeniden bağlanma fonksiyonunu çağır
-                  reconnectAttempts++;
-                } else {
-                  console.error('useTombala: Maksimum yeniden bağlanma denemesi aşıldı');
-                  setApiError('Sunucuya bağlanılamadı. Lütfen daha sonra tekrar deneyin.');
-                  // Demo moda geçiş
-                  enableDemoMode();
-                }
-              }, reconnectInterval);
-            }
-          });
-          
-          // Bağlantı hatası durumunu dinle
-          socketConn.on('connect_error', (error) => {
-            console.error('useTombala: Socket bağlantı hatası:', error);
-            setIsOnline(false);
-            
-            // Yeniden bağlanma dene
-            if (reconnectAttempts < maxReconnectAttempts) {
-              setTimeout(() => {
-                console.log(`useTombala: Bağlantı hatası sonrası yeniden deneniyor (${reconnectAttempts + 1}/${maxReconnectAttempts})...`);
-                connectSocket();
-                reconnectAttempts++;
-              }, reconnectInterval);
-            } else {
-              console.error('useTombala: Maksimum bağlantı hatası denemesi aşıldı, demo mod aktifleştiriliyor');
-              enableDemoMode();
-            }
-          });
-          
-          // Lobiye otomatik katılımı sağla
-          if (finalLobbyId && playerId) {
-            console.log(`useTombala: Lobiye katılma isteği gönderiliyor - Lobi: ${finalLobbyId}, Oyuncu: ${playerId}`);
-            socketConn.emit(SOCKET_EVENTS.JOIN_LOBBY, {
-              lobbyId: finalLobbyId,
-              playerId: playerId,
-              playerName: playerName || 'Misafir Oyuncu'
-            });
-          }
-      } else {
-        console.warn('useTombala: Socket bağlantısı kurulamadı, demo mod aktif');
-          setIsOnline(false);
-          // Demo moda geçiş
-          enableDemoMode();
-      }
-    } catch (socketError) {
-      console.error('useTombala: Socket bağlantısı başlatılırken hata:', socketError);
-        setIsOnline(false);
+        console.log('useTombala: Socket bağlantısı başlatılıyor');
         
-        // Offline mod için bir yeniden deneme daha
-        if (reconnectAttempts < maxReconnectAttempts) {
-          setTimeout(() => {
-            connectSocket();
-            reconnectAttempts++;
-          }, reconnectInterval);
-        } else {
-          // Demo moda geçiş
-          enableDemoMode();
+        // Mevcut socket veya initializeSocket fonksiyonunu kullan
+        let socketConn;
+        
+        if (socket) {
+          // Doğrudan utils içindeki socket nesnesini kullan
+          socketConn = socket;
+          console.log('useTombala: Utils içinden socket kullanılıyor');
+        } else if (typeof initializeSocket === 'function') {
+          // initializeSocket fonksiyonunu kullan
+          socketConn = initializeSocket({
+            lobbyId: finalLobbyId,
+            playerId: playerId,
+            playerName: playerName
+          });
+          console.log('useTombala: initializeSocket fonksiyonu kullanıldı');
         }
+        
+        // Socket bağlantısı başarılı mı kontrol et
+        if (socketConn) {
+          setSocketInstance(socketConn);
+          reconnectAttempts = 0; // Başarılı bağlantı durumunda sıfırla
+          console.log('useTombala: Socket bağlantısı başarıyla kuruldu');
+          setIsOnline(true);
+          return socketConn;
+        } else {
+          // Socket bağlantısı kurulamadı, demo moda geç
+          console.warn('useTombala: Socket bağlantısı kurulamadı, demo mod aktif');
+          setIsOnline(false);
+          enableDemoMode();
+          return null;
+        }
+      } catch (socketError) {
+        console.error('useTombala: Socket bağlantısı başlatılırken hata:', socketError);
+        setIsOnline(false);
+        enableDemoMode();
+        return null;
       }
     };
     
@@ -735,7 +796,7 @@ export const useTombala = () => {
         }
       }
     };
-  }, [lobbyId, playerId, playerName]);
+  }, [lobbyId, playerId, playerName, addNotification, enableDemoMode, socketInstance]);
 
   // Bağlantı kurulduktan sonra lobi bilgilerini al ve katıl
   useEffect(() => {
@@ -773,19 +834,88 @@ export const useTombala = () => {
     // Lobiye katılma yanıtı
     const handleLobbyJoined = (data) => {
       console.log('useTombala: Lobiye katılma yanıtı alındı:', data);
-      setIsHost(data.isHost);
-      if (data.players && Array.isArray(data.players)) {
-        setPlayers(data.players);
+      
+      // Host durumunu backend'den gelen veri ile belirle
+      if (data.isHost !== undefined) {
+        setIsHost(data.isHost);
+        console.log('Host durumu backend tarafından belirlendi:', data.isHost);
       }
+      
+      if (data.players && Array.isArray(data.players)) {
+        // Players dizisini güncellerken host bilgisini de doğrula
+        const updatedPlayers = data.players.map(player => ({
+          ...player,
+          // Backend tarafından gelen host bilgisini koru
+          isHost: player.isHost
+        }));
+        setPlayers(updatedPlayers);
+        
+        // ID'yi normalize etme yardımcı fonksiyonu
+        const normalizeId = (id) => {
+          if (!id) return '';
+          return typeof id === 'string' ? id : id.toString();
+        };
+        
+        // Aynı zamanda kendi oyuncu kimliğimize göre players dizisindeki host durumumuzu kontrol edelim
+        const playerIdStr = normalizeId(playerId);
+        const currentPlayer = updatedPlayers.find(p => {
+          const pIdStr = normalizeId(p.id);
+          return pIdStr === playerIdStr || 
+            (pIdStr.includes(playerIdStr) && playerIdStr.length > 5) || 
+            (playerIdStr.includes(pIdStr) && pIdStr.length > 5);
+        });
+        
+        if (currentPlayer && currentPlayer.isHost !== undefined) {
+          console.log('Players dizisinden host durumu güncelleniyor:', currentPlayer.isHost);
+          setIsHost(currentPlayer.isHost);
+        }
+      }
+      
       if (data.drawnNumbers && Array.isArray(data.drawnNumbers)) {
         setDrawnNumbers(data.drawnNumbers);
       }
+      
       if (data.gameStatus) {
         setGameStatus(data.gameStatus);
       }
+      
       if (data.currentNumber) {
         setCurrentNumber(data.currentNumber);
       }
+      
+      // Lobi verilerini güncelle
+      if (data.lobby) {
+        console.log('Lobi verileri güncellendi:', data.lobby);
+        setLobbyData(data.lobby);
+        
+        // Eğer creator bilgisi varsa, bunu kontrol et
+        if (data.lobby.creator) {
+          // ID'leri normalize et
+          const normalizeId = (id) => {
+            if (!id) return '';
+            return typeof id === 'string' ? id : id.toString();
+          };
+          
+          // MongoDB ObjectId olarak kaydedilmiş olabilir, string'e çevirelim
+          const creatorId = normalizeId(data.lobby.creator);
+          const currentPlayerId = normalizeId(playerId);
+          
+          // Geliştirilmiş karşılaştırma
+          const isCurrentPlayerCreator = 
+            creatorId === currentPlayerId || 
+            (creatorId.includes(currentPlayerId) && currentPlayerId.length > 5) ||
+            (currentPlayerId.includes(creatorId) && creatorId.length > 5);
+          
+          console.log(`Detaylı creator kontrolü: ${creatorId} === ${currentPlayerId} = ${isCurrentPlayerCreator}`);
+          
+          // Host durumu farklı ise güncelle
+          if (isCurrentPlayerCreator !== isHost) {
+            console.log('Host durumu creator bilgisiyle güncelleniyor:', isCurrentPlayerCreator);
+            setIsHost(isCurrentPlayerCreator);
+          }
+        }
+      }
+      
       addNotification({ message: data.message || 'Lobiye katıldınız', type: 'success' });
     };
     socketInstance.on(SOCKET_EVENTS.LOBBY_JOINED, handleLobbyJoined);
@@ -845,6 +975,38 @@ export const useTombala = () => {
       if (data.drawnNumbers && Array.isArray(data.drawnNumbers)) {
         console.log(`useTombala: Çekilen sayılar güncellendi. Toplam: ${data.drawnNumbers.length}/90`);
         setDrawnNumbers([...data.drawnNumbers]);
+        
+        // Tüm oyuncular için sayacı sıfırla
+        if (gameStatus === 'playing') {
+          // Sunucudan gelen countdown değerini kullan, yoksa oyun hızına göre belirle
+          let countdownDuration = data.countdown || 10; // Varsayılan (normal hız)
+          
+          if (!data.countdown) {
+            // Sunucudan countdown gelmemişse lokal ayarlara göre belirle
+            if (lobbySettings.gameSpeed === 'slow') {
+              countdownDuration = 15; // Yavaş
+            } else if (lobbySettings.gameSpeed === 'fast') {
+              countdownDuration = 5; // Hızlı
+            }
+          }
+          
+          // Duraklatma durumunu güncelle
+          if (data.isPaused !== undefined) {
+            setIsPaused(data.isPaused);
+          }
+          
+          // autoDrawEnabled durumunu da güncelle
+          if (data.autoDrawEnabled !== undefined) {
+            setAutoDrawEnabled(data.autoDrawEnabled);
+          }
+          
+          // Sayacı sadece oyun duraklatılmamışsa sıfırla
+          const newPausedState = data.isPaused !== undefined ? data.isPaused : isPaused;
+          if (!newPausedState) {
+            setCountdownTimer(countdownDuration);
+          }
+        }
+        
         try {
           localStorage.setItem('tombala_drawn_numbers', JSON.stringify(data.drawnNumbers));
           if (data.number) localStorage.setItem('tombala_current_number', data.number.toString());
@@ -867,6 +1029,22 @@ export const useTombala = () => {
     const handleError = (error) => {
       console.error('useTombala: Socket hatası:', error);
       setDrawingNumber(false);
+      
+      // Manuel sayı çekme hatası özel kontrolü
+      if (error.message && error.message.includes('Sadece lobi sahibi')) {
+        // Manuel sayı çekme yetkisi hatası görünür bir şekilde bildirilecek
+        console.log('Manuel sayı çekme yetkisi hatası');
+        
+        // Bildirim göster
+        addNotification({ 
+          type: 'warning', 
+          message: 'Sayı çekme izni reddedildi. Sadece lobi sahibi manuel sayı çekebilir.'
+        });
+        
+        return;
+      }
+      
+      // Diğer tüm hatalar için normal bildirim göster
       addNotification({ type: 'error', message: error.message || 'Bir sunucu hatası oluştu' });
     };
     socketInstance.on(SOCKET_EVENTS.ERROR, handleError); // 'error' standard event
@@ -892,7 +1070,64 @@ export const useTombala = () => {
         setCurrentNumber(data.currentNumber || null);
         setWinners({ cinko1: null, cinko2: null, tombala: null }); // Kazananları sıfırla
         setIsPaused(data.isPaused || false);
+        
+        // ID'yi normalize etme yardımcı fonksiyonu
+        const normalizeId = (id) => {
+          if (!id) return '';
+          return typeof id === 'string' ? id : id.toString();
+        };
+        
+        // Eğer players bilgisi gelmişse, güncelleyelim
+        if (data.players && Array.isArray(data.players)) {
+            console.log('Oyun başlatma olayında oyuncu listesi güncelleniyor:', data.players);
+            setPlayers(data.players);
+            
+            // Kendi ID'miz ile host durumumuzu güncelleyelim
+            const playerIdStr = normalizeId(playerId);
+            const currentPlayer = data.players.find(p => {
+              const pIdStr = normalizeId(p.id);
+              return pIdStr === playerIdStr || 
+                (pIdStr.includes(playerIdStr) && playerIdStr.length > 5) || 
+                (playerIdStr.includes(pIdStr) && pIdStr.length > 5);
+            });
+            
+            if (currentPlayer && currentPlayer.isHost !== undefined) {
+                console.log('Host durumu oyun başlatma olayında güncelleniyor:', currentPlayer.isHost);
+                setIsHost(currentPlayer.isHost);
+            }
+        }
+        
+        // Lobi bilgilerini güncelleyelim
+        if (data.lobby) {
+            console.log('Lobi verileri oyun başlatma olayında güncelleniyor:', data.lobby);
+            setLobbyData(data.lobby);
+            
+            // Lobi creator bilgisi ile host durumumuzu güncelleyelim
+            if (data.lobby.creator) {
+                // ID'leri normalize et
+                const normalizeId = (id) => {
+                  if (!id) return '';
+                  return typeof id === 'string' ? id : id.toString();
+                };
+                
+                const creatorId = normalizeId(data.lobby.creator);
+                const currentPlayerId = normalizeId(playerId);
+                
+                // Geliştirilmiş karşılaştırma
+                const isCurrentPlayerCreator = 
+                    creatorId === currentPlayerId || 
+                    (creatorId.includes(currentPlayerId) && currentPlayerId.length > 5) ||
+                    (currentPlayerId.includes(creatorId) && creatorId.length > 5);
+                    
+                if (isCurrentPlayerCreator !== isHost) {
+                    console.log('Host durumu creator bilgisiyle oyun başlatma olayında güncelleniyor:', isCurrentPlayerCreator);
+                    setIsHost(isCurrentPlayerCreator);
+                }
+            }
+        }
+        
         addNotification({ type: 'info', message: data.message || 'Oyun başladı!' });
+        
         // Oyun başladığında kartlar otomatik istenir veya oluşturulur
         if (!playerCards || playerCards.length === 0) {
             createPlayerCards(); 
@@ -905,7 +1140,25 @@ export const useTombala = () => {
         console.log('useTombala: Oyun durumu değişti:', data);
         if(data.isPaused !== undefined) {
             setIsPaused(data.isPaused);
-            addNotification({ type: 'warning', message: data.isPaused ? 'Oyun duraklatıldı.' : 'Oyun devam ediyor.' });
+            
+            // autoDrawEnabled durumunu da güncelle
+            if(data.autoDrawEnabled !== undefined) {
+                setAutoDrawEnabled(data.autoDrawEnabled);
+            }
+            
+            // Oyun durumu değiştiğinde sayacı güncelle
+            if (data.countdown && !data.isPaused) {
+                // Duraklatma kaldırıldıysa sayacı sıfırla
+                setCountdownTimer(data.countdown);
+            }
+            
+            // Host olmayan oyuncular için bildirim göster
+            if (!isHost) {
+                addNotification({ 
+                    type: 'warning', 
+                    message: data.isPaused ? 'Oyun duraklatıldı.' : 'Oyun devam ediyor.' 
+                });
+            }
         }
         if(data.gameStatus) {
             setGameStatus(data.gameStatus);
@@ -938,23 +1191,22 @@ export const useTombala = () => {
 
     // Kazanan Anonsu (Tombala için)
     const handleWinnerAnnounced = (data) => {
-        console.log('useTombala: Kazanan anons edildi (Tombala):', data);
-        // TOMBALA_CLAIMED zaten state güncelliyor, burada tekrar yapmaya gerek yok
-        // Sadece ek bildirim vs. gerekirse kullanılabilir.
-        // Kazanan ismi API'den alma mantığı TOMBALA_CLAIMED içinde zaten var.
-        if (data.playerId && !winners.tombala) { // Eğer TOMBALA_CLAIMED henüz işlememişse
-            setWinners(prev => ({
-                ...prev,
-                tombala: {
-                    playerId: data.playerId,
-                    playerName: data.playerName || 'Bilinmeyen Oyuncu',
-                    timestamp: data.timestamp || Date.now(),
-                    totalMarked: data.totalMarked || 15
-                }
-            }));
-            setGameStatus('finished');
-            addNotification({ type: 'success', message: `${data.playerName || 'Bilinmeyen'} TOMBALA yaptı! Oyun bitti.` });
-        }
+      console.log('useTombala: Kazanan anons edildi (Tombala):', data);
+      // Bot veya kullanıcı farketmeksizin kazananı işle
+      if (data.playerId) {
+        setWinners(prev => ({
+            ...prev,
+            tombala: {
+                playerId: data.playerId,
+                playerName: data.playerName || 'Bilinmeyen Oyuncu',
+                timestamp: data.timestamp || Date.now(),
+                totalMarked: data.totalMarked || 15,
+                isBot: data.isBot || false
+            }
+        }));
+        setGameStatus('finished');
+        addNotification({ type: 'success', message: `${data.playerName || 'Bilinmeyen Oyuncu'} TOMBALA yaptı! Oyun bitti.` });
+      }
     };
     socketInstance.on(SOCKET_EVENTS.WINNER_ANNOUNCED, handleWinnerAnnounced);
 
@@ -1239,15 +1491,38 @@ export const useTombala = () => {
       return;
     }
     
+    // Sayı çekme yetkisi kontrolü - Daha net ve detaylı kontrol
+    const canDrawNumber = isHost || (lobbySettings && lobbySettings.manualNumberDrawPermission === 'all-players');
+    
+    if (!canDrawNumber) {
+      console.warn('useTombala: Manuel sayı çekme yetkisi yok - Ayarlara göre sadece host sayı çekebilir');
+      addNotification({
+        type: 'warning',
+        message: 'Sadece lobi sahibi sayı çekebilir!'
+      });
+      return;
+    }
+    
     // Sayı çekme durumunu güncelle
     setDrawingNumber(true);
     
-    console.log('useTombala: Sayı çekme isteği gönderiliyor');
+    console.log('useTombala: Manuel sayı çekme isteği gönderiliyor', { 
+      isPaused, 
+      isManualDraw: true, 
+      lobbySettings,
+      manualDrawPermission: lobbySettings.manualNumberDrawPermission,
+      isHost
+    });
     
-    // Sayı çekme isteği gönder
+    // Sayı çekme isteği gönder - manuel çekme durumunda otomatik çekme durumunu değiştirmemeli
     socketInstance.emit(SOCKET_EVENTS.DRAW_NUMBER, {
       lobbyId,
-      playerId
+      playerId,
+      isManualDraw: true, // Manuel çekme olduğunu belirt
+      keepPausedState: isPaused, // Duraklatma durumunu koru
+      keepAutoDrawState: true, // Otomatik çekme durumunu da koru
+      manualDrawPermission: lobbySettings?.manualNumberDrawPermission || 'host-only', // İzin ayarını backend'e gönder
+      isHost: isHost // Host olup olmadığını backende doğru şekilde bildir - override yapma
     });
     
     // Bildirim ekle
@@ -1256,9 +1531,14 @@ export const useTombala = () => {
       message: 'Yeni sayı çekiliyor...'
     });
     
+    // Ses efekti çal - eğer ses açıksa
+    if (soundEnabled) {
+      playNumberSound();
+    }
+    
     // Sayı çekme zamanını güncelle
     setLastDrawTime(Date.now());
-  }, [socketInstance, isOnline, gameStatus, drawingNumber, lobbyId, playerId, addNotification]);
+  }, [socketInstance, isOnline, gameStatus, drawingNumber, lobbyId, playerId, addNotification, isHost, lobbySettings.manualNumberDrawPermission, isPaused, soundEnabled, playNumberSound]);
 
   // Oyun durumunu güncelle
   const setGameState = useCallback((newState) => {
@@ -1482,20 +1762,60 @@ export const useTombala = () => {
     }
   }, [createGameState, playerCards, isOnline, lobbyId, updateLobbyStatus, isHost, drawNextNumber, addGameHistoryEntry, showError, createPlayerCards]);
 
-  // Sayı işaretleme
-  const markNumber = useCallback((cardId, number) => {
-    // Eğer sayı çekilmişse işaretle
-    if (drawnNumbers.includes(number)) {
-      // Kart durumunu güncelle (işaretlenmiş olarak)
-      setPlayerCards(prev => 
-        prev.map(card => 
-          card.id === cardId 
-            ? { ...card, marked: [...(card.marked || []), number] } 
-            : card
-        )
-      );
+  // Karttaki sayıyı işaretle
+  const markNumber = useCallback((number) => {
+    if (!number) return;
+    
+    // Sayı çekildi mi kontrol et
+    if (!drawnNumbers.includes(number)) {
+      addNotification({
+        type: 'warning',
+        message: 'Bu sayı henüz çekilmedi!'
+      });
+      return;
     }
-  }, [drawnNumbers]);
+    
+    // Sadece son çekilen sayı işaretlenebilir
+    if (number === currentNumber) {
+      // Oyuncunun kartlarını kontrol et ve sayıyı işaretle
+      setPlayerCards(prevCards => {
+        const newCards = [...prevCards];
+        
+        for (let i = 0; i < newCards.length; i++) {
+          const card = newCards[i];
+          
+          // Kartların formatını kontrol et
+          if (card.numbers) {
+            // Kartın satırlarını kontrol et
+            for (let row = 0; row < card.numbers.length; row++) {
+              for (let col = 0; col < card.numbers[row].length; col++) {
+                if (card.numbers[row][col] === number) {
+                  if (!card.marked) card.marked = [];
+                  if (!card.marked.includes(number)) {
+                    card.marked.push(number);
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        return newCards;
+      });
+      
+      // Bildirim göster
+      addNotification({ 
+        type: 'success', 
+        message: `${number} sayısı işaretlendi!` 
+      });
+    } else {
+      // Son çekilen sayı değilse uyarı göster
+      addNotification({ 
+        type: 'warning', 
+        message: `Sadece son çekilen sayı (${currentNumber}) işaretlenebilir.` 
+      });
+    }
+  }, [drawnNumbers, currentNumber, addNotification]);
 
   // Yeni oyun başlatma
   const newGame = useCallback(() => {
@@ -1843,6 +2163,125 @@ export const useTombala = () => {
       return; // Koşullar sağlanmazsa kontrolü atla
     }
     
+    // Botlar için özel kontrol - players dizisindeki bot oyuncuları kontrol et
+    if (isHost && players && Array.isArray(players) && socketInstance && socketInstance.connected) {
+      // Bu dizide botların son çekilen sayıya tepki vermesini sağla
+      const bots = players.filter(p => p.isBot === true);
+      
+      if (bots.length > 0) {
+        console.log(`${bots.length} bot için kontrol yapılıyor`);
+        
+        // Son sayı çekildiğinde botların şans ile kazanmasını sağla
+        const randomBot = bots[Math.floor(Math.random() * bots.length)];
+        
+        // Çinko 1 kontrolü
+        if (!winners.cinko1) {
+          // %15 ihtimalle bot çinko1 yapsın
+          if (Math.random() < 0.15 && drawnNumbers.length >= 15) {
+            console.log(`Bot ${randomBot.name || 'Bot'} 1. ÇİNKO yapıyor!`);
+            
+            // Bot için çinko1 bildir
+            socketInstance.emit(SOCKET_EVENTS.CLAIM_CINKO, {
+              lobbyId,
+              playerId: randomBot.id,
+              playerName: randomBot.name || 'Bot Oyuncu',
+              cinkoType: 'cinko1',
+              isBot: true
+            });
+            
+            // Kazananı hemen güncelle
+            setWinners(prev => ({
+              ...prev,
+              cinko1: {
+                playerId: randomBot.id,
+                playerName: randomBot.name || 'Bot Oyuncu',
+                timestamp: Date.now(),
+                isBot: true
+              }
+            }));
+            
+            // Bildirim göster
+            addNotification({
+              type: 'success',
+              message: `${randomBot.name || 'Bot Oyuncu'} 1. ÇİNKO yaptı!`
+            });
+          }
+        }
+        // Çinko 2 kontrolü - eğer çinko 1 yapıldıysa
+        else if (winners.cinko1 && !winners.cinko2) {
+          // %12 ihtimalle bot çinko2 yapsın
+          if (Math.random() < 0.12 && drawnNumbers.length >= 20) {
+            console.log(`Bot ${randomBot.name || 'Bot'} 2. ÇİNKO yapıyor!`);
+            
+            // Bot için çinko2 bildir
+            socketInstance.emit(SOCKET_EVENTS.CLAIM_CINKO, {
+              lobbyId,
+              playerId: randomBot.id,
+              playerName: randomBot.name || 'Bot Oyuncu',
+              cinkoType: 'cinko2',
+              isBot: true
+            });
+            
+            // Kazananı hemen güncelle
+            setWinners(prev => ({
+              ...prev,
+              cinko2: {
+                playerId: randomBot.id,
+                playerName: randomBot.name || 'Bot Oyuncu',
+                timestamp: Date.now(),
+                isBot: true
+              }
+            }));
+            
+            // Bildirim göster
+            addNotification({
+              type: 'success',
+              message: `${randomBot.name || 'Bot Oyuncu'} 2. ÇİNKO yaptı!`
+            });
+          }
+        }
+        // Tombala kontrolü - eğer çinko 2 yapıldıysa
+        else if (winners.cinko2 && !winners.tombala) {
+          // %10 ihtimalle bot tombala yapsın
+          if (Math.random() < 0.10 && drawnNumbers.length >= 30) {
+            console.log(`Bot ${randomBot.name || 'Bot'} TOMBALA yapıyor!`);
+            
+            // Bot için tombala bildir
+            socketInstance.emit('claim_tombala', {
+              lobbyId,
+              playerId: randomBot.id,
+              playerName: randomBot.name || 'Bot Oyuncu',
+              totalMarked: 15,
+              isBot: true,
+              message: `${randomBot.name || 'Bot'} TOMBALA yaptı!`
+            });
+            
+            // Kazananı hemen güncelle
+            setWinners(prev => ({
+              ...prev,
+              tombala: {
+                playerId: randomBot.id,
+                playerName: randomBot.name || 'Bot Oyuncu',
+                timestamp: Date.now(),
+                totalMarked: 15,
+                isBot: true
+              }
+            }));
+            
+            // Oyunu bitir
+            setGameStatus('finished');
+            
+            // Bildirim göster
+            addNotification({
+              type: 'success',
+              message: `${randomBot.name || 'Bot Oyuncu'} TOMBALA yaptı!`
+            });
+          }
+        }
+      }
+    }
+    
+    // Kullanıcının kendi kartı için normal kontrol devam etsin
     try {
       // Oyuncunun kartını bul - farklı kart formatlarını destekle
       const myCard = playerCards.find(c => c.id === 'player_card') || playerCards[0];
@@ -1917,48 +2356,396 @@ export const useTombala = () => {
     } catch (error) {
       console.error('Kart kontrolü sırasında hata:', error);
     }
-  }, [gameStatus, drawnNumbers, playerCards, playerId, playerName, isOnline, socketInstance, lobbyId, winners, addNotification, setWinType, setGameStatus, setWinners]);
+  }, [gameStatus, drawnNumbers, currentNumber, playerCards, playerId, playerName, isOnline, socketInstance, lobbyId, winners, addNotification, setWinType, setGameStatus, setWinners, isHost, players, SOCKET_EVENTS]);
+
+  // Lobi verilerini al
+  const fetchLobbyData = useCallback(async () => {
+    if (!lobbyId) return;
+
+    try {
+      // Demo mod kontrolü veya API istekleri başarısız olursa kullanılacak
+      const createDemoLobby = () => {
+        console.log('Demo lobi oluşturuluyor');
+        // Mevcut oyunculardan creator ID'yi bulmaya çalış
+        let creatorId = playerId;
+        
+        // Eğer lobi verisinde creator ID varsa onu kullan
+        if (lobbyData && lobbyData.creator) {
+          creatorId = lobbyData.creator;
+        }
+        
+        // Mevcut oyunculardan host olabilecek bir oyuncu bul
+        if (players && players.length > 0) {
+          // Önce isHost özelliği true olan bir oyuncu ara
+          const hostPlayer = players.find(p => p.isHost === true);
+          if (hostPlayer) {
+            creatorId = hostPlayer.user || hostPlayer.id || hostPlayer._id;
+          }
+        }
+        
+        const demoLobbyData = {
+          _id: lobbyId,
+          name: "Tombala Lobisi",
+          game: "bingo",
+          creator: creatorId, // Creator ID'yi doğru şekilde ayarla
+          players: players.length > 0 ? players.map(p => p.user || p.id || p._id) : [playerId],
+          maxPlayers: 6,
+          status: gameStatus || "playing",
+          playersDetail: players.length > 0 ? players : [{
+            user: playerId,
+            name: playerName,
+            isReady: true,
+            isBot: false
+          }]
+        };
+        
+        console.log('Demo lobi oluşturuldu:', demoLobbyData);
+        setLobbyData(demoLobbyData);
+        return demoLobbyData;
+      };
+      
+      // Demo mod kontrolü
+      if (lobbyId.includes('demo_')) {
+        console.log('Demo mod: Lobi verileri simüle ediliyor');
+        return createDemoLobby();
+      }
+
+      // Token al
+      const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+      
+      // API'den lobi verilerini al
+      console.log(`Lobi verilerini alıyorum: ${API_BASE_URL}/lobbies/${lobbyId}`);
+      
+      // API isteğini dene
+      try {
+        // Yetkilendirme hatalarını önlemek için demo mod kullan
+        console.log('API isteklerinde yetkilendirme sorunları olduğu için demo mod kullanılıyor');
+        return createDemoLobby();
+
+        /* API istekleri şu an çalışmadığı için yorum satırına alındı
+        const response = await fetch(`${API_BASE_URL}/lobbies/${lobbyId}`, {
+          headers: token ? {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } : {
+            'Content-Type': 'application/json'
+          },
+          // Timeout ekle
+          signal: AbortSignal.timeout(10000) // 10 saniye timeout
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Lobi verileri alındı:', data);
+          setLobbyData(data);
+          return data;
+        }
+        
+        // Hata durumunda lobbyCode ile tekrar dene
+        console.log(`ID ile lobi bulunamadı (${response.status}), lobbyCode ile deneniyor`);
+        
+        // LobbyCode ile deneme
+        if (lobbyId.length <= 10) { // LobbyCode genellikle kısa olur
+          try {
+            const lobbyCodeResponse = await fetch(`${API_BASE_URL}/lobbies/code/${lobbyId}`, {
+              headers: token ? {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              } : {
+                'Content-Type': 'application/json'
+              },
+              signal: AbortSignal.timeout(10000) // 10 saniye timeout
+            });
+            
+            if (lobbyCodeResponse.ok) {
+              const data = await lobbyCodeResponse.json();
+              console.log('Lobi verileri lobbyCode ile alındı:', data);
+              setLobbyData(data);
+              return data;
+            }
+          } catch (codeError) {
+            console.error('LobbyCode ile istek hatası:', codeError);
+          }
+        }
+        */
+        
+        // API istekleri başarısız oldu, demo lobi oluştur
+        console.warn('API istekleri başarısız oldu, demo lobi kullanılacak');
+        return createDemoLobby();
+      } catch (fetchError) {
+        console.error('Fetch hatası:', fetchError);
+        // Fetch hatası durumunda demo lobi oluştur
+        return createDemoLobby();
+      }
+    } catch (error) {
+      console.error('Lobi verileri alınırken hata:', error);
+      
+      // Hata durumunda demo lobi oluştur
+      const demoLobbyData = {
+        _id: lobbyId,
+        name: "Tombala Lobisi",
+        game: "bingo",
+        creator: playerId, // Varsayılan olarak mevcut oyuncuyu creator yap
+        players: players.length > 0 ? players.map(p => p.user || p.id || p._id) : [playerId],
+        maxPlayers: 6,
+        status: gameStatus || "playing",
+        playersDetail: players.length > 0 ? players : [{
+          user: playerId,
+          name: playerName,
+          isReady: true,
+          isBot: false
+        }]
+      };
+      setLobbyData(demoLobbyData);
+      
+      addNotification({ type: 'warning', message: 'Lobi verileri alınamadı, demo mod kullanılıyor' });
+      return demoLobbyData;
+    }
+  }, [lobbyId, playerId, playerName, addNotification, players, gameStatus, lobbyData]);
+
+  // Lobi verilerini yükle
+  useEffect(() => {
+    if (lobbyId && !lobbyData) {
+      fetchLobbyData();
+    }
+  }, [lobbyId, lobbyData, fetchLobbyData]);
+
+  // Mesaj gönderme fonksiyonu
+  const sendMessage = useCallback((message) => {
+    if (!socketInstance || !message || message.trim() === '') return;
+
+    const messageData = {
+      lobbyId,
+      playerId,
+      playerName,
+      message: message.trim(),
+      timestamp: Date.now()
+    };
+
+    console.log('Mesaj gönderiliyor:', messageData);
+    
+    // Socket üzerinden mesaj gönder
+    if (socketInstance && socketInstance.connected) {
+      socketInstance.emit(SOCKET_EVENTS.SEND_MESSAGE, messageData);
+    }
+
+    // Mesajı yerel olarak da ekle
+    setMessages(prev => [...prev, messageData]);
+
+    return true;
+  }, [socketInstance, lobbyId, playerId, playerName]);
+
+  // Lobi ayarlarını güncelleme fonksiyonu
+  const updateLobbySettings = useCallback((settings) => {
+    if (!socketInstance || !isHost || !lobbyId) {
+      console.warn('Ayarlar güncellenemiyor: Socket bağlantısı yok veya host değilsiniz');
+      addNotification({
+        type: 'error',
+        message: 'Ayarlar güncellenemiyor: Host değilsiniz veya bağlantı sorunu var!'
+      });
+      return false;
+    }
+    
+    console.log('Lobi ayarları güncelleniyor:', settings);
+    
+    // Önce yerel ayarları güncelle (bunu hemen yapalım, görsel olarak da değişsin)
+    if (settings) {
+      setLobbySettings(prevSettings => ({
+        ...prevSettings,
+        ...settings
+      }));
+    }
+    
+    // Socket üzerinden ayarları güncelle
+    socketInstance.emit(SOCKET_EVENTS.UPDATE_LOBBY_SETTINGS, {
+      lobbyId,
+      settings,
+      playerId,
+      isHost
+    });
+    
+    // Bildirim ekle
+    addNotification({
+      type: 'info',
+      message: 'Lobi ayarları güncelleniyor...'
+    });
+    
+    return true;
+  }, [socketInstance, isHost, lobbyId, playerId, addNotification]);
+  
+  // Lobi ayarları güncellendiğinde dinle
+  useEffect(() => {
+    if (!socketInstance) return;
+    
+    // Lobi ayarları güncellendiğinde
+    const handleLobbySettingsUpdated = (data) => {
+      console.log('Lobi ayarları güncellendi:', data);
+      
+      if (data && data.settings) {
+        setLobbySettings(prevSettings => ({
+          ...prevSettings,
+          ...data.settings
+        }));
+        
+        // Bildirim ekle
+        addNotification({
+          type: 'success',
+          message: 'Lobi ayarları güncellendi'
+        });
+      }
+    };
+    
+    // Olay dinleyicisini ekle
+    socketInstance.on(SOCKET_EVENTS.LOBBY_SETTINGS_UPDATED, handleLobbySettingsUpdated);
+    
+    // Temizleme işlevi
+    return () => {
+      socketInstance.off(SOCKET_EVENTS.LOBBY_SETTINGS_UPDATED, handleLobbySettingsUpdated);
+    };
+  }, [socketInstance, addNotification]);
+
+  // Socket olaylarını dinle
+  useEffect(() => {
+    if (!socket) return;
+
+    // Sayı çekildiğinde
+    const handleNumberDrawn = (data) => {
+      console.log('Yeni sayı çekildi:', data);
+      
+      // Çekilen sayıları güncelle
+      if (data.drawnNumbers && Array.isArray(data.drawnNumbers)) {
+        setDrawnNumbers(data.drawnNumbers);
+      }
+      
+      // Mevcut sayıyı güncelle
+      if (data.number !== undefined) {
+        setCurrentNumber(data.number);
+      }
+      
+      // Sayaç süresini güncelle - backend'den gelen değer
+      if (data.countdown !== undefined) {
+        setCountdownTimer(data.countdown);
+      }
+      
+      // Duraklatma durumunu güncelle
+      if (data.isPaused !== undefined) {
+        setIsPaused(data.isPaused);
+      }
+      
+      // Otomatik çekme durumunu güncelle
+      if (data.autoDrawEnabled !== undefined) {
+        setAutoDrawEnabled(data.autoDrawEnabled);
+      }
+      
+      // Ses çal
+      if (soundEnabled) {
+        playNumberSound();
+      }
+    };
+
+    // Oyun durumu değiştiğinde
+    const handleGameStatusChanged = (data) => {
+      console.log('Oyun durumu değişti:', data);
+      
+      // Oyun durumunu güncelle
+      if (data.gameStatus) {
+        setGameStatus(data.gameStatus);
+      }
+      
+      // Duraklatma durumunu güncelle
+      if (data.isPaused !== undefined) {
+        setIsPaused(data.isPaused);
+      }
+      
+      // Sayaç süresini güncelle - backend'den gelen değer
+      if (data.countdown !== undefined) {
+        setCountdownTimer(data.countdown);
+      }
+      
+      // Otomatik çekme durumunu güncelle
+      if (data.autoDrawEnabled !== undefined) {
+        setAutoDrawEnabled(data.autoDrawEnabled);
+      }
+      
+      // Bildirim ekle
+      if (data.message) {
+        addNotification(data.message, 'info');
+      }
+    };
+
+    // Sayaç güncellendiğinde - yeni eklenen olay
+    const handleCountdownUpdate = (data) => {
+      console.log('Sayaç güncellendi:', data);
+      
+      // Duraklatma durumunu güncelle
+      if (data.isPaused !== undefined) {
+        setIsPaused(data.isPaused);
+      }
+      
+      // Sayaç süresini güncelle - sadece oyun duraklatılmamışsa
+      if (data.countdown !== undefined) {
+        // Eğer oyun duraklatılmışsa, sayacı güncelleme 
+        // (Duraklatma durumunu önce kontrol ediyoruz çünkü data.isPaused daha güncel)
+        const shouldUpdateTimer = data.isPaused !== undefined ? !data.isPaused : !isPaused;
+        
+        if (shouldUpdateTimer) {
+          setCountdownTimer(data.countdown);
+        }
+      }
+    };
+
+    // Olayları dinle
+    socket.on('number_drawn', handleNumberDrawn);
+    socket.on('game_status_changed', handleGameStatusChanged);
+    socket.on('countdown_update', handleCountdownUpdate);
+
+    // Bağlantı kurulduğunda sayaç bilgisini iste
+    if (lobbyId) {
+      socket.emit('get_countdown', { lobbyId });
+    }
+
+    // Temizleme işlevi
+    return () => {
+      socket.off('number_drawn', handleNumberDrawn);
+      socket.off('game_status_changed', handleGameStatusChanged);
+      socket.off('countdown_update', handleCountdownUpdate);
+    };
+  }, [socket, lobbyId, soundEnabled, playNumberSound, addNotification]);
 
   // Hook'un dönüş değeri
   return {
     gameStatus,
-    playerCards,
     currentNumber,
     drawnNumbers,
-    winners,
+    playerCards,
+    winner: winners.tombala, // winner değişkeni yerine winners.tombala kullanıyoruz
     winType,
     isOnline,
-    gameHistory,
-    apiError,
+    socket: socketInstance,
     lobbyId,
+    playerId,
+    players,
     isHost,
     notifications,
-    players,
-    messages,
+    chatMessages: messages,
     isPaused,
-    socket: socketInstance,
-    // Eklemeler - drawingCompleted ve drawingNumber değişkenlerini ekliyoruz
-    drawingCompleted,
-    drawingNumber,
-    // checkForWins fonksiyonunu çıkarıyoruz
-    
-    // Fonksiyonlar
-    createNewGame,
-    createPlayerCards,
+    autoDrawEnabled,
+    countdownTimer,
     drawNextNumber,
-    updatePlayerCard,
-    checkWin,
+    createPlayerCards,
+    winners,
+    generateTombalaCards,
     claimCinko1,
     claimCinko2,
     claimTombala,
-    announceWin,
-    setLobbyId,
-    setIsHost,
-    setGameState,
-    addGameHistoryEntry,
-    showError,
-    updateLobbyStatus,
-    addNotification
+    sendMessage,
+    newGame,
+    lobbyData, // Lobi verisini ekle
+    lobbySettings,
+    updateLobbySettings,
+    soundEnabled,
+    toggleSound,
+    playNumberSound
   };
 };
 

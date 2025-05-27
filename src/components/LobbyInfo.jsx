@@ -353,13 +353,6 @@ function LobbyInfo({ lobbyData }) {
               </CopyButton>
             </Typography>
           </DetailItem>
-          
-          {lobbyData.betAmount > 0 && (
-            <DetailItem>
-              <Typography variant="h6" component="h3">Bahis Miktarı</Typography>
-              <Typography variant="body1" component="p">{lobbyData.betAmount} Jeton</Typography>
-            </DetailItem>
-          )}
         </LobbyDetails>
         
         <PlayerList>

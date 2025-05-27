@@ -68,32 +68,48 @@ export const saveGameStatus = async (lobbyId, gameState) => {
         ? '/api' 
         : API_BASE_URL;
         
-      const response = await fetch(`${apiUrl}/lobbies/status/${lobbyId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          status: gameState.gameStatus || 'playing',
-          gameData: gameState
-        }),
-        signal: controller.signal,
-        credentials: 'include'
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Oyun durumu sunucuya kaydedildi:', data);
-        return { success: true, data, local: true };
-      } else {
-        console.warn(`Sunucu kayıt hatası: ${response.status}`);
+      // API bağlantı hatası (ERR_CONNECTION_REFUSED) sorunu için try-catch bloğunda yapılandırma
+      try {
+        const response = await fetch(`${apiUrl}/lobbies/status/${lobbyId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            status: gameState.gameStatus || 'playing',
+            gameData: gameState
+          }),
+          signal: controller.signal,
+          credentials: 'include'
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Oyun durumu sunucuya kaydedildi:', data);
+          return { success: true, data, local: true };
+        } else {
+          // 500 Internal Server Error veya diğer sunucu hatalarını sessizce ele al
+          console.warn(`Sunucu kayıt hatası: ${response.status} - yerel duruma geri dönülüyor`);
+          return { 
+            success: true, 
+            local: true, 
+            serverError: true,
+            statusCode: response.status,
+            message: `Sunucu hatası (${response.status}), oyun durumu yalnızca yerel olarak kaydedildi`
+          };
+        }
+      } catch (networkError) {
+        console.error('API ağ hatası:', networkError);
+        
+        // Bağlantı reddedildi veya sunucuya erişilemedi
+        // Sessizce devam et, yalnızca loglama yap
         return { 
           success: true, 
           local: true, 
-          serverError: true,
-          message: 'Sunucu hatası, oyun durumu yalnızca yerel olarak kaydedildi'
+          connectionError: true,
+          message: 'Sunucuya bağlanılamadı, oyun yerel modda devam ediyor'
         };
       }
     } catch (error) {

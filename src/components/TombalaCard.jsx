@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, Snackbar, Alert } from '@mui/material';
 import { FaCheck } from 'react-icons/fa';
 
 // Kart konteyneri
@@ -111,6 +111,7 @@ function TombalaCard({ card, drawnNumbers = [], currentNumber, onCardUpdate }) {
   const [markedCells, setMarkedCells] = useState([]);
   const [matchedNumbers, setMatchedNumbers] = useState([]);
   const [hoverEffect, setHoverEffect] = useState(false);
+  const [openAlert, setOpenAlert] = useState(false);
   const prevDrawnNumbersRef = useRef([]);
   
   // Çizili sayı sayısını sayma
@@ -168,8 +169,25 @@ function TombalaCard({ card, drawnNumbers = [], currentNumber, onCardUpdate }) {
 
   // Sayıya tıklama işleyicisi
   const handleCellClick = (number, rowIndex, colIndex) => {
-    if (!number || !drawnNumbers.includes(number)) return;
+    // Eğer sayı geçerli değilse işlem yapma
+    if (!number) return;
     
+    // İlk kontrol: Sayı çekilmiş mi?
+    if (!drawnNumbers.includes(number)) {
+      console.log(`Sayı ${number} henüz çekilmemiş, işaretlenemez`);
+      setOpenAlert(true);
+      return;
+    }
+    
+    // İkinci kontrol: Sadece en son çekilen sayıyı işaretlemeye izin ver
+    if (number !== currentNumber) {
+      // Eğer tıklanan sayı son çekilen sayı değilse uyarı göster
+      console.log(`Sayı ${number} son çekilen sayı (${currentNumber}) değil, işaretlenemez`);
+      setOpenAlert(true);
+      return; 
+    }
+    
+    console.log(`Sayı ${number} işaretleniyor - Son çekilen sayı ile eşleşiyor`);
     const cellKey = `${rowIndex}-${colIndex}`;
     const isAlreadyMarked = markedCells.includes(cellKey);
     
@@ -196,6 +214,11 @@ function TombalaCard({ card, drawnNumbers = [], currentNumber, onCardUpdate }) {
         });
       }
     }
+  };
+
+  // Uyarı bildirimini kapat
+  const handleAlertClose = () => {
+    setOpenAlert(false);
   };
 
   // Eğer kart matris formatında değilse veya boşsa, yükleme durumunu göster
@@ -243,13 +266,17 @@ function TombalaCard({ card, drawnNumbers = [], currentNumber, onCardUpdate }) {
                       $marked={isMarked}
                       $active={isCurrentNumber}
                       onClick={() => handleCellClick(number, rowIndex, colIndex)}
-                      sx={{ cursor: (number && isDrawn) ? 'pointer' : 'default' }}
+                      sx={{ 
+                        cursor: (number && isDrawn && number === currentNumber) ? 'pointer' : 'default',
+                        border: isCurrentNumber ? '2px solid #ff5722' : '1px solid #6c5dd3',
+                        animation: isCurrentNumber ? 'pulse 1.5s infinite' : 'none'
+                      }}
                     >
                       <Typography 
                         sx={{ 
                           fontSize: '1.125rem', 
-                          fontWeight: isDrawn ? 'bold' : 'normal',
-                          color: isCurrentNumber ? '#fff' : (isDrawn ? '#b8a9ff' : '#a8a8b3')
+                          fontWeight: isCurrentNumber ? 'bold' : isDrawn ? 'bold' : 'normal',
+                          color: isCurrentNumber ? '#ff5722' : isDrawn ? '#b8a9ff' : '#a8a8b3'
                         }}
                       >
                         {number}
@@ -347,6 +374,30 @@ function TombalaCard({ card, drawnNumbers = [], currentNumber, onCardUpdate }) {
           )}
         </Box>
       )}
+      
+      {/* Yanlış sayıya tıklandığında gösterilen uyarı bildirimi */}
+      <Snackbar 
+        open={openAlert} 
+        autoHideDuration={3000} 
+        onClose={handleAlertClose}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleAlertClose} 
+          severity="warning" 
+          variant="filled" 
+          sx={{ 
+            width: '100%', 
+            bgcolor: '#ff5722', 
+            boxShadow: '0 4px 12px rgba(255, 87, 34, 0.3)',
+            '& .MuiAlert-message': {
+              fontWeight: 'bold'
+            }
+          }}
+        >
+          Sadece son çekilen sayı ({currentNumber || '-'}) işaretlenebilir!
+        </Alert>
+      </Snackbar>
     </CardContainer>
   );
 }

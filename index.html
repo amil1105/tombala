@@ -8,13 +8,24 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <!-- CSP ayarlama - iframe içinde çalışabilmesi için - tüm bağlantılara izin ver -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' http: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss: http: https:; img-src 'self' data: http: https:; style-src 'self' 'unsafe-inline'; frame-ancestors *;">
   <base href="/tombala/" />
   <meta name="theme-color" content="#1a237e" />
   <meta name="description" content="Tombala - Çok oyunculu çevrimiçi tombala oyunu" />
   <meta name="keywords" content="tombala, online, bingo, multiplayer, oyun" />
   <meta name="author" content="Game Center" />
   <link rel="icon" type="image/png" href="/tombala/favicon.png" />
+  <!-- Google Fonts - Oxanium -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Oxanium', sans-serif;
+      background-color: #121212;
+      color: #fff;
+    }
+  </style>
   <title>Tombala Oyunu</title>
   
   <!-- Global playerId değişkeni tanımla - en önemli kısım -->
@@ -195,7 +206,7 @@
   <div id="root"></div>
   
   <!-- Geliştirme ortamında Vite'ın entry point JavaScript -->
-  <script type="module" src="/src/index.jsx"></script>
+  <script type="module" src="/src/main.jsx"></script>
   
   <!-- Error handling for playerId not defined -->
   <script>

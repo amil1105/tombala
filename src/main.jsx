@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { CustomThemeProvider } from './contexts/ThemeContext';
 import './index.css';
 
 // Global playerId değişkeni güvenlik önlemi
@@ -27,6 +29,10 @@ if (typeof window !== 'undefined') {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <CustomThemeProvider>
+      <BrowserRouter basename="/tombala">
+        <App />
+      </BrowserRouter>
+    </CustomThemeProvider>
   </React.StrictMode>
 ); 

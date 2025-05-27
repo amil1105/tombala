@@ -86,22 +86,11 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
-        secure: false,
-        ws: true,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('proxy error', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            console.log('Proxying API Request:', req.method, req.url);
-          });
-        }
+        secure: false
       },
-      // Socket.io isteklerini yönlendir
-      '/socket.io': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-        secure: false,
+      // WebSocket isteklerini de yönlendir
+      '/ws': {
+        target: 'ws://localhost:5000',
         ws: true
       },
       // Doğrudan endpoint isteklerini yönlendir (eski API destek için)

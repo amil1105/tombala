@@ -7,14 +7,25 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <!-- CSP ayarlama - iframe içinde çalışabilmesi için -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://localhost:5000 data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:5000 ws://localhost:5000 wss://localhost:5000; img-src 'self' data: blob: http://localhost:5000; frame-src 'self' http://localhost:5000; frame-ancestors *;">
+  <!-- CSP ayarlama - iframe içinde çalışabilmesi için - tüm bağlantılara izin ver -->
   <base href="/tombala/" />
   <meta name="theme-color" content="#1a237e" />
   <meta name="description" content="Tombala - Çok oyunculu çevrimiçi tombala oyunu" />
   <meta name="keywords" content="tombala, online, bingo, multiplayer, oyun" />
   <meta name="author" content="Game Center" />
   <link rel="icon" type="image/png" href="/tombala/favicon.png" />
+  <!-- Google Fonts - Oxanium -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Oxanium', sans-serif;
+      background-color: #121212;
+      color: #fff;
+    }
+  </style>
   <title>Tombala Oyunu</title>
   
   <!-- Global playerId değişkeni tanımla - en önemli kısım -->
@@ -54,6 +65,10 @@
         window.tombalaParams[key] = value;
       }
     }
+    
+    // API ve Socket URL'lerini bu noktada tanımla
+    window.__API_URL__ = 'http://localhost:5000';
+    window.__SOCKET_URL__ = 'http://localhost:5000';
     
     // Prototype override ile ReferenceError'ı yakala ve düzelt
     (function() {
@@ -134,6 +149,21 @@
             console.log('Oyuncu adı güncellendi:', data.playerName);
           }
           
+          // Socket bağlantısını yenile
+          if (window.refreshSocketConnection) {
+            try {
+              console.log('Socket bağlantısı yenileniyor...');
+              window.refreshSocketConnection({
+                lobbyId: data.lobbyId,
+                playerId: data.playerId,
+                playerName: data.playerName,
+                lobbyName: data.lobbyName || 'Tombala Lobisi'
+              });
+            } catch (e) {
+              console.error('Socket bağlantısı yenilenirken hata:', e);
+            }
+          }
+          
           // Mesajı aldığımızı belirten bir yanıt gönder
           if (window.parent && window.parent !== window) {
             window.parent.postMessage({
@@ -150,15 +180,36 @@
       }
     });
   </script>
-  <script type="module" crossorigin src="/tombala/assets/main-BbAbFvRB-1746490934693.js"></script>
-  <link rel="modulepreload" crossorigin href="/tombala/assets/vendor-DB98CieD-1746490934693.js">
-  <link rel="modulepreload" crossorigin href="/tombala/assets/utils-3A9clmTn-1746490934693.js">
-  <link rel="stylesheet" crossorigin href="/tombala/assets/main-Bc_GCysh-1746490934693.css">
+  <script type="module" crossorigin src="/tombala/assets/main-CvWFaF3o.js"></script>
+  <link rel="modulepreload" crossorigin href="/tombala/assets/vendor-5KKcpKRm.js">
+  <link rel="modulepreload" crossorigin href="/tombala/assets/utils-3A9clmTn.js">
+  <link rel="stylesheet" crossorigin href="/tombala/assets/main-BnQoEaMO.css">
 </head>
 <body>
+  <!-- Ek global playerId değişkeni tanımlaması - body başlangıcında -->
+  <script>
+    // Eğer head içindeki tanımlama başarısız olduysa burada tekrar dene
+    if (typeof playerId === 'undefined') {
+      console.warn('Body içinde playerId tanımlanıyor - head içindeki tanımlama başarısız olmuş olabilir');
+      var playerId = localStorage.getItem('tombala_playerId') || 
+                    localStorage.getItem('playerId') || 
+                    (window.location.search ? new URLSearchParams(window.location.search).get('playerId') : null) ||
+                    `player_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+      
+      // window nesnesine de ekle
+      window.playerId = playerId;
+      
+      // localStorage'a kaydet
+      localStorage.setItem('tombala_playerId', playerId);
+      localStorage.setItem('playerId', playerId);
+      
+      console.log('Body içinde global playerId değişkeni tanımlandı:', playerId);
+    }
+  </script>
+  
   <div id="root"></div>
   
-  <!-- Geliştirme ortamında Vite'ın entry point JavaScript -->
+  <!-- Geliştirme ortamında Vite'ın entry point JavaScript -->
   
   <!-- Error handling for playerId not defined -->
   <script>
