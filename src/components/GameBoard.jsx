@@ -260,7 +260,8 @@ const GameBoard = () => {
     generateTombalaCards,
     lobbyData,
     lobbySettings,
-    updateLobbySettings
+    updateLobbySettings,
+    drawingNumber // isDrawingNumber/drawingNumber state'ini ekleyelim
   } = useTombala();
   
   // Yerel state'ler
@@ -328,6 +329,14 @@ const GameBoard = () => {
   const drawNextNumber = useCallback(() => {
     console.log("GameBoard: Sayı çekme isteği", { isHost, gameStatus, isPaused, lobbySettings });
     
+    // Oyun bitmiş mi kontrolü
+    if (gameStatus === 'finished') {
+      setAlertMessage('Oyun sona erdi, yeni sayı çekilemez!');
+      setAlertSeverity('warning');
+      setAlertOpen(true);
+      return;
+    }
+    
     // Sayı çekme yetkisi kontrolü - ayarlara göre
     const canDrawNumber = isHost || (lobbySettings && lobbySettings.manualNumberDrawPermission === 'all-players');
     
@@ -347,7 +356,13 @@ const GameBoard = () => {
     }
     
     // Hook'taki fonksiyonu çağır
-    hookDrawNextNumber();
+    try {
+      hookDrawNextNumber();
+    } catch (error) {
+      setAlertMessage('Sayı çekilirken bir hata oluştu: ' + error.message);
+      setAlertSeverity('error');
+      setAlertOpen(true);
+    }
   }, [gameStatus, isPaused, isHost, lobbySettings, hookDrawNextNumber, setAlertMessage, setAlertSeverity, setAlertOpen]);
 
   // Yeni oyun başlatma fonksiyonu
@@ -444,6 +459,14 @@ const GameBoard = () => {
       setAlertOpen(true);
       return;
     }
+    
+    // Oyun bitmiş mi kontrolü
+    if (gameStatus === 'finished') {
+      setAlertMessage('Oyun sona erdi, otomatik sayı çekme ayarlanamaz!');
+      setAlertSeverity('warning');
+      setAlertOpen(true);
+      return;
+    }
 
     const newAutoDrawState = !autoDrawEnabled;
     console.log(`Otomatik sayı çekme durumu değiştiriliyor: autoDrawEnabled = ${newAutoDrawState}`);
@@ -459,7 +482,7 @@ const GameBoard = () => {
     setAlertMessage(newAutoDrawState ? 'Otomatik sayı çekme açıldı' : 'Otomatik sayı çekme kapatıldı');
     setAlertSeverity('info');
     setAlertOpen(true);
-  }, [socket, isHost, autoDrawEnabled, lobbyId, setAlertMessage, setAlertSeverity, setAlertOpen]);
+  }, [socket, isHost, autoDrawEnabled, lobbyId, gameStatus, setAlertMessage, setAlertSeverity, setAlertOpen]);
 
   // Mesaj gönderme işlevi
   const sendMessage = useCallback(() => {
@@ -1992,7 +2015,7 @@ const GameBoard = () => {
                         <Button
                           variant="contained"
                           color="secondary"
-                          disabled={gameStatus !== 'playing'}
+                          disabled={gameStatus !== 'playing' || drawingNumber}
                           onClick={drawNextNumber}
                           sx={{ 
                             mb: 1,
@@ -2002,9 +2025,9 @@ const GameBoard = () => {
                             padding: '6px 8px',
                           }}
                           size="small"
-                          startIcon={<AutorenewIcon />}
+                          startIcon={drawingNumber ? <CircularProgress size={16} color="inherit" /> : <AutorenewIcon />}
                         >
-                          Manuel Sayı Çek
+                          {drawingNumber ? 'Sayı Çekiliyor...' : 'Manuel Sayı Çek'}
                         </Button>
                         <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
                           {isHost 

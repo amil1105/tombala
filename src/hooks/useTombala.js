@@ -42,7 +42,8 @@ const SOCKET_EVENTS = {
   CINKO1_CLAIMED: 'cinko1_claimed',
   CINKO2_CLAIMED: 'cinko2_claimed',
   UPDATE_LOBBY_SETTINGS: 'update_lobby_settings',
-  LOBBY_SETTINGS_UPDATED: 'lobby_settings_updated'
+  LOBBY_SETTINGS_UPDATED: 'lobby_settings_updated',
+  GAME_UPDATE: 'game_update'
 };
 
 // Socket bağlantı URL'sini düzelt
@@ -966,61 +967,47 @@ export const useTombala = () => {
 
     // Sayı çekilme olayı
     const handleNumberDrawn = (data) => {
-      console.log('useTombala: Yeni sayı çekildi:', data);
-      setDrawingNumber(false);
-      if (data.number) {
-        setCurrentNumber(data.number);
-        addNotification({ type: 'info', message: `Yeni sayı çekildi: ${data.number}` }); // Bilgi mesajı olarak değiştirildi
+      console.log('Yeni sayı çekildi:', data);
+      
+      // Oyun bitmiş durumda ise işlem yapma
+      if (gameStatus === 'finished') {
+        console.log('Oyun bitmiş durumda, sayı güncellenmedi');
+        // Sadece sayı çekme durumunu sıfırla ve çık
+        setDrawingNumber(false);
+        return;
       }
+      
+      // Çekilen sayıları güncelle
       if (data.drawnNumbers && Array.isArray(data.drawnNumbers)) {
-        console.log(`useTombala: Çekilen sayılar güncellendi. Toplam: ${data.drawnNumbers.length}/90`);
-        setDrawnNumbers([...data.drawnNumbers]);
-        
-        // Tüm oyuncular için sayacı sıfırla
-        if (gameStatus === 'playing') {
-          // Sunucudan gelen countdown değerini kullan, yoksa oyun hızına göre belirle
-          let countdownDuration = data.countdown || 10; // Varsayılan (normal hız)
-          
-          if (!data.countdown) {
-            // Sunucudan countdown gelmemişse lokal ayarlara göre belirle
-            if (lobbySettings.gameSpeed === 'slow') {
-              countdownDuration = 15; // Yavaş
-            } else if (lobbySettings.gameSpeed === 'fast') {
-              countdownDuration = 5; // Hızlı
-            }
-          }
-          
-          // Duraklatma durumunu güncelle
-          if (data.isPaused !== undefined) {
-            setIsPaused(data.isPaused);
-          }
-          
-          // autoDrawEnabled durumunu da güncelle
-          if (data.autoDrawEnabled !== undefined) {
-            setAutoDrawEnabled(data.autoDrawEnabled);
-          }
-          
-          // Sayacı sadece oyun duraklatılmamışsa sıfırla
-          const newPausedState = data.isPaused !== undefined ? data.isPaused : isPaused;
-          if (!newPausedState) {
-            setCountdownTimer(countdownDuration);
-          }
-        }
-        
-        try {
-          localStorage.setItem('tombala_drawn_numbers', JSON.stringify(data.drawnNumbers));
-          if (data.number) localStorage.setItem('tombala_current_number', data.number.toString());
-          localStorage.setItem('tombala_last_update', Date.now().toString());
-        } catch (err) {
-          console.error('useTombala: Local storage kayıt hatası:', err);
-        }
-        if (data.drawnNumbers.length >= 90) {
-          console.log('useTombala: Tüm sayılar çekildi, oyun bitiyor');
-          setGameStatus('finished');
-          addNotification({ type: 'info', message: 'Tüm sayılar çekildi, oyun bitti!' });
-        }
-      } else {
-        console.warn('useTombala: Sunucudan gelen çekilen sayılar dizisi bulunamadı veya geçerli değil');
+        setDrawnNumbers(data.drawnNumbers);
+      }
+      
+      // Mevcut sayıyı güncelle
+      if (data.number !== undefined) {
+        setCurrentNumber(data.number);
+      }
+      
+      // Sayaç süresini güncelle - backend'den gelen değer
+      if (data.countdown !== undefined) {
+        setCountdownTimer(data.countdown);
+      }
+      
+      // Duraklatma durumunu güncelle
+      if (data.isPaused !== undefined) {
+        setIsPaused(data.isPaused);
+      }
+      
+      // Otomatik çekme durumunu güncelle
+      if (data.autoDrawEnabled !== undefined) {
+        setAutoDrawEnabled(data.autoDrawEnabled);
+      }
+      
+      // Sayı çekme durumunu sıfırla, butonun tekrar aktif olmasını sağla
+      setDrawingNumber(false);
+      
+      // Ses çal
+      if (soundEnabled) {
+        playNumberSound();
       }
     };
     socketInstance.on(SOCKET_EVENTS.NUMBER_DRAWN, handleNumberDrawn);
@@ -1162,6 +1149,19 @@ export const useTombala = () => {
         }
         if(data.gameStatus) {
             setGameStatus(data.gameStatus);
+            
+            // Eğer oyun bittiyse, sayı çekme ve sayaç işlemlerini durdur
+            if (data.gameStatus === 'finished') {
+              setAutoDrawEnabled(false);
+              setIsPaused(true);
+              setCountdownTimer(0);
+              
+              // Bildirim ekle
+              addNotification({
+                type: 'info',
+                message: 'Oyun sona erdi!'
+              });
+            }
         }
     };
     socketInstance.on(SOCKET_EVENTS.GAME_STATUS_CHANGED, handleGameStatusChanged);
@@ -1205,6 +1205,23 @@ export const useTombala = () => {
             }
         }));
         setGameStatus('finished');
+        
+        // Oyun bittiğinde otomatik sayı çekmeyi ve sayacı durdur
+        setAutoDrawEnabled(false);
+        setIsPaused(true);
+        setCountdownTimer(0);
+        
+        // Sunucuya da oyunun bittiğini ve durakladığını bildir
+        if (socketInstance) {
+          socketInstance.emit(SOCKET_EVENTS.GAME_UPDATE, {
+            lobbyId,
+            isPaused: true,
+            autoDrawEnabled: false,
+            gameStatus: 'finished',
+            timestamp: Date.now()
+          });
+        }
+        
         addNotification({ type: 'success', message: `${data.playerName || 'Bilinmeyen Oyuncu'} TOMBALA yaptı! Oyun bitti.` });
       }
     };
@@ -2637,6 +2654,9 @@ export const useTombala = () => {
         setAutoDrawEnabled(data.autoDrawEnabled);
       }
       
+      // Sayı çekme durumunu sıfırla, butonun tekrar aktif olmasını sağla
+      setDrawingNumber(false);
+      
       // Ses çal
       if (soundEnabled) {
         playNumberSound();
@@ -2650,6 +2670,19 @@ export const useTombala = () => {
       // Oyun durumunu güncelle
       if (data.gameStatus) {
         setGameStatus(data.gameStatus);
+        
+        // Eğer oyun bittiyse, sayı çekme ve sayaç işlemlerini durdur
+        if (data.gameStatus === 'finished') {
+          setAutoDrawEnabled(false);
+          setIsPaused(true);
+          setCountdownTimer(0);
+          
+          // Bildirim ekle
+          addNotification({
+            type: 'info',
+            message: 'Oyun sona erdi!'
+          });
+        }
       }
       
       // Duraklatma durumunu güncelle
@@ -2658,7 +2691,7 @@ export const useTombala = () => {
       }
       
       // Sayaç süresini güncelle - backend'den gelen değer
-      if (data.countdown !== undefined) {
+      if (data.countdown !== undefined && data.gameStatus !== 'finished') {
         setCountdownTimer(data.countdown);
       }
       
@@ -2669,7 +2702,10 @@ export const useTombala = () => {
       
       // Bildirim ekle
       if (data.message) {
-        addNotification(data.message, 'info');
+        addNotification({
+          type: 'info',
+          message: data.message
+        });
       }
     };
 
@@ -2677,16 +2713,32 @@ export const useTombala = () => {
     const handleCountdownUpdate = (data) => {
       console.log('Sayaç güncellendi:', data);
       
+      // Eğer oyun bitmişse sayacı güncelleme
+      if (gameStatus === 'finished') {
+        console.log('Oyun bitmiş durumda, sayaç durdu');
+        // Oyun bittiği için sayaç değerini sıfırla
+        setCountdownTimer(0);
+        // Oyun bitti, otomatik çekmeyi de kapat
+        if (autoDrawEnabled) {
+          setAutoDrawEnabled(false);
+        }
+        // Paused durumuna geçir
+        if (!isPaused) {
+          setIsPaused(true);
+        }
+        return;
+      }
+      
       // Duraklatma durumunu güncelle
       if (data.isPaused !== undefined) {
         setIsPaused(data.isPaused);
       }
       
-      // Sayaç süresini güncelle - sadece oyun duraklatılmamışsa
+      // Sayaç süresini güncelle - sadece oyun duraklatılmamışsa ve bitmemişse
       if (data.countdown !== undefined) {
-        // Eğer oyun duraklatılmışsa, sayacı güncelleme 
+        // Eğer oyun duraklatılmışsa veya bitmişse, sayacı güncelleme 
         // (Duraklatma durumunu önce kontrol ediyoruz çünkü data.isPaused daha güncel)
-        const shouldUpdateTimer = data.isPaused !== undefined ? !data.isPaused : !isPaused;
+        const shouldUpdateTimer = (data.isPaused !== undefined ? !data.isPaused : !isPaused) && gameStatus !== 'finished';
         
         if (shouldUpdateTimer) {
           setCountdownTimer(data.countdown);
@@ -2710,7 +2762,7 @@ export const useTombala = () => {
       socket.off('game_status_changed', handleGameStatusChanged);
       socket.off('countdown_update', handleCountdownUpdate);
     };
-  }, [socket, lobbyId, soundEnabled, playNumberSound, addNotification]);
+  }, [socket, lobbyId, gameStatus, isPaused, autoDrawEnabled, soundEnabled, playNumberSound, addNotification]);
 
   // Hook'un dönüş değeri
   return {
@@ -2745,7 +2797,8 @@ export const useTombala = () => {
     updateLobbySettings,
     soundEnabled,
     toggleSound,
-    playNumberSound
+    playNumberSound,
+    drawingNumber, // Sayı çekme işleminin devam edip etmediği (buton devre dışı bırakmak için)
   };
 };
 
