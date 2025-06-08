@@ -69,7 +69,10 @@ export default defineConfig({
     },
     // Global değişkenleri tanımla
     __API_URL__: JSON.stringify('/api'),
-    __SOCKET_URL__: JSON.stringify('http://localhost:5000')
+    __SOCKET_URL__: JSON.stringify('http://localhost:5000'),
+    'process.env': {
+      NODE_ENV: JSON.stringify(process.env.NODE_ENV || 'development'),
+    },
   },
   // CORS sorunlarını önlemek için proxy ayarları
   server: {
@@ -86,40 +89,52 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
-        secure: false
-      },
-      // WebSocket isteklerini de yönlendir
-      '/ws': {
-        target: 'ws://localhost:5000',
-        ws: true
-      },
-      // Doğrudan endpoint isteklerini yönlendir (eski API destek için)
-      '/lobbies/status': {
-        target: 'http://localhost:5000/api',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/lobbies\/status/, '/lobbies/status'),
         secure: false,
+        // Path rewrite kurallarını düzenliyoruz - /api/lobbies/... istekleri için
+        rewrite: (path) => {
+          // /api/lobbies/status/{id} formatındaki istekleri doğru endpoint'e yönlendir
+          if (path.match(/^\/api\/lobbies\/status\/([^\/]+)$/)) {
+            // /api/lobbies/{id} formatına dönüştür
+            return path.replace(/^\/api\/lobbies\/status\/([^\/]+)$/, '/lobbies/$1');
+          }
+          
+          // Normal rewrite kuralı
+          return path.replace(/^\/api/, '');
+        }
+      },
+      
+      // WebSocket isteklerini doğru şekilde yönlendir
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        ws: true,
+        changeOrigin: true,
+        secure: false
       }
     },
-    // Hata ayıklama bilgilerini görüntüle
-    hmr: {
-      overlay: true
+    // Watch options - dosya değişikliklerinde sayfayı otomatik yenileme
+    watch: {
+      usePolling: true,
+      interval: 1000,
     }
   },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    minify: 'terser',
-    sourcemap: true,
+    sourcemap: process.env.NODE_ENV !== 'production',
+    minify: process.env.NODE_ENV === 'production',
+    // Chunk büyüklüğü uyarılarını devre dışı bırak
+    chunkSizeWarningLimit: 2000,
+    // Tüm uyarıları kapatma
+    reportCompressedSize: false,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html')
       },
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom', '@mui/material', '@emotion/react', '@emotion/styled'],
-          utils: ['socket.io-client']
-        }
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          ui: ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+        },
       }
     },
     // Çıktı dosyalarının yapılandırması
@@ -134,5 +149,14 @@ export default defineConfig({
     renderBuiltUrl(filename) {
       return `/tombala/${filename}`;
     }
-  }
+  },
+  // Geliştirici deneyimi iyileştirmeleri
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom', '@mui/material', '@mui/icons-material'],
+  },
+  // Esbuild ayarları
+  esbuild: {
+    // JSX için React import ayarı - bunu kaldırıyoruz çünkü main.jsx'de zaten import edilmiş
+    // jsxInject: `import React from 'react'`,
+  },
 }); 

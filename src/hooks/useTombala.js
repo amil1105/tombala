@@ -46,10 +46,14 @@ const SOCKET_EVENTS = {
   GAME_UPDATE: 'game_update'
 };
 
-// Socket bağlantı URL'sini düzelt
-const SOCKET_URL = process.env.NODE_ENV === 'production' 
-  ? window.location.origin 
-  : 'http://localhost:5000';
+// Geliştirme ortamında localhost kontrolü
+const isLocalhost = window.location.hostname === 'localhost' || 
+                   window.location.hostname === '127.0.0.1';
+
+// Socket bağlantı URL'ini düzelt
+const SOCKET_URL = isLocalhost
+  ? 'http://localhost:5000'
+  : window.location.origin;
 
 // WebSocket URL'ini düzelt
 const WS_URL = process.env.NODE_ENV === 'production'
@@ -57,9 +61,7 @@ const WS_URL = process.env.NODE_ENV === 'production'
   : 'ws://localhost:5000/ws';
 
 // API base URL'ini düzelt
-const API_BASE_URL = process.env.NODE_ENV === 'production'
-  ? '/api'
-  : '/api'; // Vite proxy kullanıldığı için doğrudan /api kullanılabilir
+const API_BASE_URL = '/api';
 
 // Akıllı yeniden deneme mekanizması ekle
 const fetchWithRetry = async (url, options, retries = 3) => {
@@ -694,7 +696,7 @@ export const useTombala = () => {
     // URL'den lobi ID'sini al
     let finalLobbyId = lobbyId;
     
-      if (!finalLobbyId) {
+    if (!finalLobbyId) {
       // URL'den lobi ID'sini çıkarmaya çalış
       const path = window.location.pathname;
       console.log('useTombala: LobbyId URL path\'inden alındı:', path);
@@ -716,90 +718,40 @@ export const useTombala = () => {
       return;
     }
     
-    // Yeniden bağlanma sayacı
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    const reconnectInterval = 3000; // 3 saniye
-    
     // Demo mod etkinse temizle
     if (localStorage.getItem('tombala_demo_mode') === 'true') {
       console.log('useTombala: Demo mod ayarı temizlendi');
       localStorage.removeItem('tombala_demo_mode');
     }
     
-    // Socket bağlantısını kur
-    const connectSocket = () => {
-      try {
-        console.log('useTombala: Socket bağlantısı başlatılıyor');
-        
-        // Mevcut socket veya initializeSocket fonksiyonunu kullan
-        let socketConn;
-        
-        if (socket) {
-          // Doğrudan utils içindeki socket nesnesini kullan
-          socketConn = socket;
-          console.log('useTombala: Utils içinden socket kullanılıyor');
-        } else if (typeof initializeSocket === 'function') {
-          // initializeSocket fonksiyonunu kullan
-          socketConn = initializeSocket({
-            lobbyId: finalLobbyId,
-            playerId: playerId,
-            playerName: playerName
-          });
-          console.log('useTombala: initializeSocket fonksiyonu kullanıldı');
-        }
-        
-        // Socket bağlantısı başarılı mı kontrol et
-        if (socketConn) {
-          setSocketInstance(socketConn);
-          reconnectAttempts = 0; // Başarılı bağlantı durumunda sıfırla
-          console.log('useTombala: Socket bağlantısı başarıyla kuruldu');
-          setIsOnline(true);
-          return socketConn;
-        } else {
-          // Socket bağlantısı kurulamadı, demo moda geç
-          console.warn('useTombala: Socket bağlantısı kurulamadı, demo mod aktif');
-          setIsOnline(false);
-          enableDemoMode();
-          return null;
-        }
-      } catch (socketError) {
-        console.error('useTombala: Socket bağlantısı başlatılırken hata:', socketError);
-        setIsOnline(false);
-        enableDemoMode();
-        return null;
-      }
+    // Socket bağlantı parametrelerini hazırla
+    const socketParams = {
+      lobbyId: finalLobbyId,
+      playerId,
+      playerName
     };
     
-    // İlk bağlantıyı başlat
-    connectSocket();
+    // Socket bağlantısını başlat
+    const newSocket = initializeSocket(socketParams);
+    
+    // Socket başarıyla oluşturulduysa, state'i güncelle
+    if (newSocket && (!socketInstance || newSocket.id !== socketInstance.id)) {
+      console.log('useTombala: Yeni socket bağlantısı oluşturuldu');
+      setSocketInstance(newSocket);
+      setIsOnline(true);
+    }
     
     // Temizleme işlevi
     return () => {
       console.log('useTombala: Socket bağlantısı temizleniyor');
       
-      if (socketInstance) {
-        // Dinleyicileri temizle
-        socketInstance.off('connect');
-        socketInstance.off('disconnect');
-        socketInstance.off('connect_error');
-        socketInstance.off(SOCKET_EVENTS.LOBBY_JOINED);
-        socketInstance.off(SOCKET_EVENTS.PLAYER_JOINED);
-        socketInstance.off(SOCKET_EVENTS.NUMBER_DRAWN);
-        socketInstance.off(SOCKET_EVENTS.GAME_START);
-        socketInstance.off(SOCKET_EVENTS.GAME_END);
-        socketInstance.off(SOCKET_EVENTS.CINKO_CLAIMED);
-        socketInstance.off(SOCKET_EVENTS.TOMBALA_CLAIMED);
-        
-        // Bağlantıyı kapat
-        if (socketInstance.connected) {
-          socketInstance.disconnect();
-        }
-      }
+      // Sadece hook unmount olduğunda bağlantıyı kapat, her state değişiminde değil
+      // NOT: Socket bağlantısını burada kapatmıyoruz, çünkü yeni bağlantı aynı
+      // socket nesnesini tekrar kullanabilir
     };
-  }, [lobbyId, playerId, playerName, addNotification, enableDemoMode, socketInstance]);
+  }, [lobbyId, playerId, playerName]); // socketInstance bağımlılığını kaldırdık
 
-  // Bağlantı kurulduktan sonra lobi bilgilerini al ve katıl
+  // Socket ve lobbyId mevcut olduğunda dinleyicileri ekle
   useEffect(() => {
     // Socket yoksa veya lobbyId yoksa işlem yapma
     if (!socketInstance || !lobbyId) {
@@ -820,15 +772,12 @@ export const useTombala = () => {
     }
 
     // Lobiye katılma isteği gönder (eğer zaten bağlı değilse)
-    // Bu kısım ilk bağlantı useEffect'ine taşınabilir, ancak burada da olabilir.
-    if (!socketInstance.listeners(SOCKET_EVENTS.LOBBY_JOINED).length) {
-      console.log('useTombala: Lobiye katılma isteği gönderiliyor (useEffect içinden)');
-      socketInstance.emit(SOCKET_EVENTS.JOIN_LOBBY, {
-        lobbyId,
-        playerId: currentPlayerId,
-        playerName
-      });
-    }
+    console.log('useTombala: Lobiye katılma isteği gönderiliyor (useEffect içinden)');
+    socketInstance.emit(SOCKET_EVENTS.JOIN_LOBBY, {
+      lobbyId,
+      playerId: currentPlayerId,
+      playerName
+    });
 
     // --- Olay Dinleyicileri --- 
 
@@ -917,7 +866,8 @@ export const useTombala = () => {
         }
       }
       
-      addNotification({ message: data.message || 'Lobiye katıldınız', type: 'success' });
+      // Her sayı çekildiğinde gereksiz bildirim tekrarını önlemek için kaldırıyorum
+      // addNotification({ message: data.message || 'Lobiye katıldınız', type: 'success' });
     };
     socketInstance.on(SOCKET_EVENTS.LOBBY_JOINED, handleLobbyJoined);
 
@@ -927,7 +877,10 @@ export const useTombala = () => {
       if (data.players && Array.isArray(data.players)) {
         setPlayers(data.players);
       }
-      addNotification({ message: `${data.playerName || 'Yeni oyuncu'} lobiye katıldı`, type: 'info' });
+      
+      // Oyuncu katılma bildirimi göstermeyi kaldırıyorum
+      // Gereksiz tekrarlayan bildirimler önlenmiş olacak
+      // addNotification({ message: `${data.playerName || 'Yeni oyuncu'} lobiye katıldı`, type: 'info' });
     };
     socketInstance.on(SOCKET_EVENTS.PLAYER_JOINED, handlePlayerJoined);
 
@@ -948,32 +901,32 @@ export const useTombala = () => {
     };
     socketInstance.on(SOCKET_EVENTS.PLAYER_LEFT, handlePlayerLeft);
 
-    // Oyuncu durum güncellemesi olayı (Bu event backend'de tanımlı mı? Kontrol edilmeli)
-    // const handlePlayerStatusUpdate = (data) => {
-    //   console.log('useTombala: Oyuncu durum güncellemesi:', data);
-    //   if (data.players && Array.isArray(data.players)) {
-    //     setPlayers(data.players);
-    //   }
-    // };
-    // socketInstance.on(SOCKET_EVENTS.PLAYER_STATUS_UPDATE, handlePlayerStatusUpdate); // Eğer backend destekliyorsa etkinleştir
-
-    // Tombala kazanma olayı (Bu olayı dinleyen kod zaten yukarıda var, burada tekrar eklemeye gerek yok)
-    // const handleTombalaClaimed = (data) => { ... };
-    // socketInstance.on(SOCKET_EVENTS.TOMBALA_CLAIMED, handleTombalaClaimed);
-
-    // Lobi bilgileri güncellemesi (Bu event backend'de tanımlı mı? Kontrol edilmeli)
-    // const handleLobbyInfo = (data) => { ... };
-    // socketInstance.on(SOCKET_EVENTS.LOBBY_INFO, handleLobbyInfo); // Eğer backend destekliyorsa etkinleştir
-
     // Sayı çekilme olayı
     const handleNumberDrawn = (data) => {
       console.log('Yeni sayı çekildi:', data);
       
       // Oyun bitmiş durumda ise işlem yapma
-      if (gameStatus === 'finished') {
-        console.log('Oyun bitmiş durumda, sayı güncellenmedi');
+      if (gameStatus === 'finished' || winners.tombala !== null) {
+        console.log('Oyun bitmiş durumda, sayı güncellemesi yapılmıyor');
         // Sadece sayı çekme durumunu sıfırla ve çık
         setDrawingNumber(false);
+        
+        // Otomatik çekmeyi de kapat
+        if (autoDrawEnabled) {
+          setAutoDrawEnabled(false);
+          
+          // Sunucuya da otomatik çekmenin kapatıldığını bildir
+          if (socketInstance && socketInstance.connected) {
+            socketInstance.emit(SOCKET_EVENTS.GAME_UPDATE, {
+              lobbyId,
+              isPaused: true,
+              autoDrawEnabled: false,
+              gameStatus: 'finished',
+              timestamp: Date.now()
+            });
+          }
+        }
+        
         return;
       }
       
@@ -1010,25 +963,66 @@ export const useTombala = () => {
         playNumberSound();
       }
     };
-    socketInstance.on(SOCKET_EVENTS.NUMBER_DRAWN, handleNumberDrawn);
+    // Bu satırı tamamen kaldırıyorum - sayı çekme olayı için başka bir listener var
+    // socketInstance.on(SOCKET_EVENTS.NUMBER_DRAWN, handleNumberDrawn);
 
     // Hata olayını dinle
     const handleError = (error) => {
       console.error('useTombala: Socket hatası:', error);
       setDrawingNumber(false);
       
-      // Manuel sayı çekme hatası özel kontrolü
-      if (error.message && error.message.includes('Sadece lobi sahibi')) {
-        // Manuel sayı çekme yetkisi hatası görünür bir şekilde bildirilecek
-        console.log('Manuel sayı çekme yetkisi hatası');
-        
-        // Bildirim göster
-        addNotification({ 
-          type: 'warning', 
-          message: 'Sayı çekme izni reddedildi. Sadece lobi sahibi manuel sayı çekebilir.'
-        });
-        
+      // Eğer oyun bitmişse, hata mesajlarını gösterme
+      if (gameStatus === 'finished') {
+        console.log('Oyun bitti, hata mesajı gösterilmiyor');
         return;
+      }
+      
+      // "Sadece lobi sahibi oyun durumunu değiştirebilir!" hatasını yakala ve yoksay
+      if (error.message && (
+        error.message.includes('Sadece lobi sahibi oyun durumunu değiştirebilir') ||
+        error.message.includes('Oyun durumu değiştirebilir')
+      )) {
+        console.log('Oyun durumu değiştirme hatası yoksayılıyor:', error.message);
+        
+        // Herkesin oyun durumunu değiştirebilmesini sağla - lokal state güncelle
+        if (winners && winners.tombala) {
+          console.log('Oyunun zaten kazananı var, finished durumuna geçiliyor');
+          setGameStatus('finished');
+        }
+        
+        return; // Hatayı yoksay ve bildirim gösterme
+      }
+      
+      // Hata mesajlarını kontrol edelim ve bazılarını filtreleyip sessiz hale getirelim
+      if (error.message) {
+        const errorMessage = error.message.toLowerCase();
+        
+        // Oyun bittiğinde oluşan hataları sessizce geçiştir
+        if (
+          errorMessage.includes('oyun durumu güncellenirken') || 
+          errorMessage.includes('sayı çekilirken') || 
+          errorMessage.includes('sayı çekme işlemi sırasında')
+        ) {
+          // Oyun bitişinden sonra olan hataları sessizce işle
+          if (gameStatus === 'finished' || winners.tombala !== null) {
+            console.log('Oyun bittiği için bu hata sessizce geçiştiriliyor:', error.message);
+            return;
+          }
+        }
+        
+        // Manuel sayı çekme hatası özel kontrolü
+        if (error.message && error.message.includes('Sadece lobi sahibi')) {
+          // Manuel sayı çekme yetkisi hatası görünür bir şekilde bildirilecek
+          console.log('Manuel sayı çekme yetkisi hatası');
+          
+          // Bildirim göster
+          addNotification({ 
+            type: 'warning', 
+            message: 'Sayı çekme izni reddedildi. Sadece lobi sahibi manuel sayı çekebilir.'
+          });
+          
+          return;
+        }
       }
       
       // Diğer tüm hatalar için normal bildirim göster
@@ -1125,41 +1119,71 @@ export const useTombala = () => {
     // Oyun Durumu Değişikliği (Örn: Pause/Resume)
     const handleGameStatusChanged = (data) => {
         console.log('useTombala: Oyun durumu değişti:', data);
-        if(data.isPaused !== undefined) {
-            setIsPaused(data.isPaused);
-            
-            // autoDrawEnabled durumunu da güncelle
-            if(data.autoDrawEnabled !== undefined) {
-                setAutoDrawEnabled(data.autoDrawEnabled);
-            }
-            
-            // Oyun durumu değiştiğinde sayacı güncelle
-            if (data.countdown && !data.isPaused) {
-                // Duraklatma kaldırıldıysa sayacı sıfırla
-                setCountdownTimer(data.countdown);
-            }
-            
-            // Host olmayan oyuncular için bildirim göster
-            if (!isHost) {
-                addNotification({ 
-                    type: 'warning', 
-                    message: data.isPaused ? 'Oyun duraklatıldı.' : 'Oyun devam ediyor.' 
-                });
-            }
-        }
+        
         if(data.gameStatus) {
             setGameStatus(data.gameStatus);
             
             // Eğer oyun bittiyse, sayı çekme ve sayaç işlemlerini durdur
             if (data.gameStatus === 'finished') {
+              console.log('Oyun bitti, tüm sayı çekme işlemleri durduruluyor');
               setAutoDrawEnabled(false);
               setIsPaused(true);
               setCountdownTimer(0);
+              
+              // Olası zamanlayıcıları temizle
+              if (drawTimeoutRef.current) {
+                clearTimeout(drawTimeoutRef.current);
+                drawTimeoutRef.current = null;
+              }
+              
+              // Sunucuya da oyunun bittiğini ve durakladığını bildir
+              if (socketInstance && socketInstance.connected) {
+                socketInstance.emit(SOCKET_EVENTS.GAME_UPDATE, {
+                  lobbyId,
+                  isPaused: true,
+                  autoDrawEnabled: false,
+                  gameStatus: 'finished',
+                  timestamp: Date.now()
+                });
+              }
               
               // Bildirim ekle
               addNotification({
                 type: 'info',
                 message: 'Oyun sona erdi!'
+              });
+            }
+        }
+        
+        if(data.isPaused !== undefined) {
+            // Eğer oyun bittiyse, her zaman duraklatılmış olarak ayarla
+            if (gameStatus === 'finished' || winners.tombala !== null) {
+              setIsPaused(true);
+            } else {
+              setIsPaused(data.isPaused);
+            }
+            
+            // autoDrawEnabled durumunu da güncelle
+            if(data.autoDrawEnabled !== undefined) {
+              // Oyun bittiyse, otomatik çekmeyi her zaman kapat
+              if (gameStatus === 'finished' || winners.tombala !== null) {
+                setAutoDrawEnabled(false);
+              } else {
+                setAutoDrawEnabled(data.autoDrawEnabled);
+              }
+            }
+            
+            // Oyun durumu değiştiğinde sayacı güncelle
+            if (data.countdown && !data.isPaused && gameStatus !== 'finished') {
+              // Duraklatma kaldırıldıysa ve oyun bitmemişse sayacı sıfırla
+              setCountdownTimer(data.countdown);
+            }
+            
+            // Host olmayan oyuncular için bildirim göster
+            if (!isHost && gameStatus !== 'finished') {
+              addNotification({ 
+                type: 'warning', 
+                message: data.isPaused ? 'Oyun duraklatıldı.' : 'Oyun devam ediyor.' 
               });
             }
         }
@@ -1192,18 +1216,21 @@ export const useTombala = () => {
     // Kazanan Anonsu (Tombala için)
     const handleWinnerAnnounced = (data) => {
       console.log('useTombala: Kazanan anons edildi (Tombala):', data);
+      
       // Bot veya kullanıcı farketmeksizin kazananı işle
       if (data.playerId) {
         setWinners(prev => ({
-            ...prev,
-            tombala: {
-                playerId: data.playerId,
-                playerName: data.playerName || 'Bilinmeyen Oyuncu',
-                timestamp: data.timestamp || Date.now(),
-                totalMarked: data.totalMarked || 15,
-                isBot: data.isBot || false
-            }
+          ...prev,
+          tombala: {
+            playerId: data.playerId,
+            playerName: data.playerName || 'Bilinmeyen Oyuncu',
+            timestamp: data.timestamp || Date.now(),
+            totalMarked: data.totalMarked || 15,
+            isBot: data.isBot || false
+          }
         }));
+        
+        // Oyun durumunu finished olarak ayarla
         setGameStatus('finished');
         
         // Oyun bittiğinde otomatik sayı çekmeyi ve sayacı durdur
@@ -1211,8 +1238,15 @@ export const useTombala = () => {
         setIsPaused(true);
         setCountdownTimer(0);
         
+        // Olası zamanlayıcıları temizle
+        if (drawTimeoutRef.current) {
+          clearTimeout(drawTimeoutRef.current);
+          drawTimeoutRef.current = null;
+        }
+        
         // Sunucuya da oyunun bittiğini ve durakladığını bildir
-        if (socketInstance) {
+        if (socketInstance && socketInstance.connected) {
+          console.log('Sunucuya oyunun bittiği bildiriliyor');
           socketInstance.emit(SOCKET_EVENTS.GAME_UPDATE, {
             lobbyId,
             isPaused: true,
@@ -1227,7 +1261,6 @@ export const useTombala = () => {
     };
     socketInstance.on(SOCKET_EVENTS.WINNER_ANNOUNCED, handleWinnerAnnounced);
 
-
     // Temizleme işlevi
     return () => {
       console.log('useTombala: Olay dinleyicileri temizleniyor', { socketId: socketInstance.id });
@@ -1235,11 +1268,8 @@ export const useTombala = () => {
       socketInstance.off(SOCKET_EVENTS.LOBBY_JOINED, handleLobbyJoined);
       socketInstance.off(SOCKET_EVENTS.PLAYER_JOINED, handlePlayerJoined);
       socketInstance.off(SOCKET_EVENTS.PLAYER_LEFT, handlePlayerLeft);
-      // socketInstance.off(SOCKET_EVENTS.PLAYER_STATUS_UPDATE, handlePlayerStatusUpdate);
-      // socketInstance.off(SOCKET_EVENTS.LOBBY_INFO, handleLobbyInfo);
       socketInstance.off(SOCKET_EVENTS.NUMBER_DRAWN, handleNumberDrawn);
       socketInstance.off(SOCKET_EVENTS.GAME_START, handleGameStart);
-      // socketInstance.off(SOCKET_EVENTS.GAME_END); // GAME_END olayı tanımlı mı?
       socketInstance.off(SOCKET_EVENTS.ERROR, handleError);
       socketInstance.off(SOCKET_EVENTS.CARDS_CREATED, handleCardsCreated);
       socketInstance.off(SOCKET_EVENTS.GAME_STATUS_CHANGED, handleGameStatusChanged);
@@ -1247,14 +1277,8 @@ export const useTombala = () => {
       socketInstance.off(SOCKET_EVENTS.CINKO1_CLAIMED, handleCinko1Claimed);
       socketInstance.off(SOCKET_EVENTS.CINKO2_CLAIMED, handleCinko2Claimed);
       socketInstance.off(SOCKET_EVENTS.WINNER_ANNOUNCED, handleWinnerAnnounced);
-
-      // Lobiden çıkma isteği burada olmamalı, komponent unmount olduğunda farklı bir yerde ele alınmalı
-      // socketInstance.emit(SOCKET_EVENTS.LEAVE_LOBBY, {
-      //   lobbyId,
-      //   playerId: currentPlayerId
-      // });
     };
-  }, [socketInstance, lobbyId, playerId, playerName, addNotification, createPlayerCards, playerCards]); // Bağımlılıklara dikkat!
+  }, [socketInstance, lobbyId, playerId, playerName, addNotification, createPlayerCards, playerCards, gameStatus, isHost, autoDrawEnabled, drawingNumber, soundEnabled, playNumberSound, winners]);
 
   // Hata gösterme fonksiyonu
   const showError = useCallback((message) => {
@@ -1483,16 +1507,69 @@ export const useTombala = () => {
 
   // Sonraki sayıyı çek
   const drawNextNumber = useCallback(() => {
-    if (!socketInstance || !isOnline) {
-      console.warn('useTombala: Sayı çekilemiyor - socket bağlantısı yok');
-      // Bağlantı yok, bildirim göster
+    // Oyun bitti kontrolü
+    if (gameStatus === 'finished' || winners.tombala !== null) {
+      console.log('useTombala: Oyun bitmiş durumda, sayı çekilemiyor');
       addNotification({
-        type: 'error',
-        message: 'Sayı çekilemiyor: Sunucuya bağlantı yok!'
+        type: 'warning',
+        message: 'Oyun sona erdi, sayı çekilemiyor!'
       });
       return;
     }
     
+    // Socket bağlantısını daha güvenilir şekilde kontrol et
+    const isSocketConnected = socketInstance && socketInstance.connected;
+    
+    // Daha iyi bir socket bağlantı kontrolü
+    if (!isSocketConnected) {
+      console.warn('useTombala: Sayı çekilemiyor - socket bağlantısı yok');
+      
+      // Socket var ama bağlı değilse, yeniden bağlanmayı dene
+      if (socketInstance && !socketInstance.connected) {
+        console.log('useTombala: Socket var ama bağlı değil, yeniden bağlanmaya çalışılıyor...');
+        
+        try {
+          // Yeniden bağlanmayı dene
+          socketInstance.connect();
+          
+          // Bağlantı durumunu kontrol et
+          setTimeout(() => {
+            if (socketInstance.connected) {
+              console.log('useTombala: Socket yeniden bağlandı, sayı çekme tekrar deneniyor...');
+              // Bağlantı başarılı olduysa, sayı çekmeyi tekrar dene
+              drawNextNumber();
+              return;
+            } else {
+              console.warn('useTombala: Socket yeniden bağlanamadı');
+              // Bağlantı başarısız olursa, bildirim göster
+              addNotification({
+                type: 'error',
+                message: 'Sunucuya bağlanılamadı. Lütfen sayfayı yenileyip tekrar deneyin.'
+              });
+            }
+          }, 1000);
+          
+          // Bu aşamada hala bağlantı kurulamadı, bildirim göster
+          addNotification({
+            type: 'warning',
+            message: 'Sunucu bağlantısı kuruluyor, lütfen bekleyin...'
+          });
+          return;
+        } catch (error) {
+          console.error('useTombala: Socket yeniden bağlanma hatası:', error);
+        }
+      }
+      
+      // Socket hiç yok ise bildirim göster
+      addNotification({
+        type: 'error',
+        message: 'Sayı çekilemiyor: Sunucuya bağlantı yok!'
+      });
+      
+      return;
+    }
+    
+    // Oyun durumu kontrolü
     if (gameStatus !== 'playing') {
       console.warn('useTombala: Sayı çekilemiyor - oyun başlamadı');
       // Oyun başlamadı, bildirim göster
@@ -1503,6 +1580,7 @@ export const useTombala = () => {
       return;
     }
     
+    // Sayı çekme işlemi zaten devam ediyor mu?
     if (drawingNumber) {
       console.warn('useTombala: Şu anda bir sayı çekiliyor, lütfen bekleyin');
       return;
@@ -1528,34 +1606,63 @@ export const useTombala = () => {
       isManualDraw: true, 
       lobbySettings,
       manualDrawPermission: lobbySettings.manualNumberDrawPermission,
-      isHost
+      isHost,
+      socketId: socketInstance?.id
     });
     
     // Sayı çekme isteği gönder - manuel çekme durumunda otomatik çekme durumunu değiştirmemeli
-    socketInstance.emit(SOCKET_EVENTS.DRAW_NUMBER, {
-      lobbyId,
-      playerId,
-      isManualDraw: true, // Manuel çekme olduğunu belirt
-      keepPausedState: isPaused, // Duraklatma durumunu koru
-      keepAutoDrawState: true, // Otomatik çekme durumunu da koru
-      manualDrawPermission: lobbySettings?.manualNumberDrawPermission || 'host-only', // İzin ayarını backend'e gönder
-      isHost: isHost // Host olup olmadığını backende doğru şekilde bildir - override yapma
-    });
-    
-    // Bildirim ekle
-    addNotification({
-      type: 'info',
-      message: 'Yeni sayı çekiliyor...'
-    });
-    
-    // Ses efekti çal - eğer ses açıksa
-    if (soundEnabled) {
-      playNumberSound();
+    try {
+      socketInstance.emit(SOCKET_EVENTS.DRAW_NUMBER, {
+        lobbyId,
+        playerId,
+        isManualDraw: true, // Manuel çekme olduğunu belirt
+        keepPausedState: isPaused, // Duraklatma durumunu koru
+        keepAutoDrawState: !isPaused, // Eğer oyun duraklatılmışsa, otomatik çekmeyi kapalı tut
+        manualDrawPermission: lobbySettings?.manualNumberDrawPermission || 'host-only', // İzin ayarını backend'e gönder
+        isHost: isHost, // Host olup olmadığını backende doğru şekilde bildir - override yapma
+        timestamp: Date.now()
+      });
+      
+      // Bildirim ekle
+      addNotification({
+        type: 'info',
+        message: 'Yeni sayı çekiliyor...'
+      });
+      
+      // Ses efekti çal - eğer ses açıksa
+      if (soundEnabled) {
+        playNumberSound();
+      }
+      
+      // Sayı çekme zamanını güncelle
+      setLastDrawTime(Date.now());
+      
+      // Socket olayını gönderme hatası için timeout
+      drawTimeoutRef.current = setTimeout(() => {
+        // Hala çekiliyor durumundaysa, bir hata olmuş olabilir
+        if (drawingNumber) {
+          console.warn('useTombala: Sayı çekme işlemi zaman aşımına uğradı');
+          setDrawingNumber(false);
+          
+          // Bildirim göster
+          addNotification({
+            type: 'warning',
+            message: 'Sayı çekme işlemi zaman aşımına uğradı, lütfen tekrar deneyin.'
+          });
+        }
+      }, 5000);
+      
+    } catch (error) {
+      console.error('useTombala: Sayı çekme isteği gönderilirken hata:', error);
+      setDrawingNumber(false);
+      
+      // Bildirim göster
+      addNotification({
+        type: 'error',
+        message: 'Sayı çekilemiyor: ' + (error.message || 'Bilinmeyen hata')
+      });
     }
-    
-    // Sayı çekme zamanını güncelle
-    setLastDrawTime(Date.now());
-  }, [socketInstance, isOnline, gameStatus, drawingNumber, lobbyId, playerId, addNotification, isHost, lobbySettings.manualNumberDrawPermission, isPaused, soundEnabled, playNumberSound]);
+  }, [socketInstance, isOnline, gameStatus, drawingNumber, lobbyId, playerId, addNotification, isHost, lobbySettings, isPaused, soundEnabled, playNumberSound, winners]);
 
   // Oyun durumunu güncelle
   const setGameState = useCallback((newState) => {
@@ -2623,11 +2730,35 @@ export const useTombala = () => {
 
   // Socket olaylarını dinle
   useEffect(() => {
-    if (!socket) return;
+    if (!socketInstance) return;
 
     // Sayı çekildiğinde
     const handleNumberDrawn = (data) => {
       console.log('Yeni sayı çekildi:', data);
+      
+      // Oyun bitmiş durumda ise işlem yapma
+      if (gameStatus === 'finished' || winners.tombala !== null) {
+        console.log('Oyun bitmiş durumda, sayı güncellenmedi');
+        // Sayı çekme durumunu sıfırla
+        setDrawingNumber(false);
+        
+        // Otomatik çekmeyi kapat
+        if (autoDrawEnabled) {
+          setAutoDrawEnabled(false);
+          
+          // Sunucuya otomatik çekmenin kapatıldığını bildir
+          if (socketInstance && socketInstance.connected) {
+            socketInstance.emit(SOCKET_EVENTS.GAME_UPDATE, {
+              lobbyId,
+              isPaused: true,
+              autoDrawEnabled: false,
+              gameStatus: 'finished',
+              timestamp: Date.now()
+            });
+          }
+        }
+        return;
+      }
       
       // Çekilen sayıları güncelle
       if (data.drawnNumbers && Array.isArray(data.drawnNumbers)) {
@@ -2673,9 +2804,16 @@ export const useTombala = () => {
         
         // Eğer oyun bittiyse, sayı çekme ve sayaç işlemlerini durdur
         if (data.gameStatus === 'finished') {
+          console.log('Oyun bitti, tüm sayı çekme işlemleri durduruluyor');
           setAutoDrawEnabled(false);
           setIsPaused(true);
           setCountdownTimer(0);
+          
+          // Zamanlayıcıları temizle
+          if (drawTimeoutRef.current) {
+            clearTimeout(drawTimeoutRef.current);
+            drawTimeoutRef.current = null;
+          }
           
           // Bildirim ekle
           addNotification({
@@ -2687,17 +2825,27 @@ export const useTombala = () => {
       
       // Duraklatma durumunu güncelle
       if (data.isPaused !== undefined) {
-        setIsPaused(data.isPaused);
+        // Oyun bitmişse, her zaman duraklat
+        if (gameStatus === 'finished' || winners.tombala !== null) {
+          setIsPaused(true);
+        } else {
+          setIsPaused(data.isPaused);
+        }
       }
       
       // Sayaç süresini güncelle - backend'den gelen değer
-      if (data.countdown !== undefined && data.gameStatus !== 'finished') {
+      if (data.countdown !== undefined && data.gameStatus !== 'finished' && !winners.tombala) {
         setCountdownTimer(data.countdown);
       }
       
       // Otomatik çekme durumunu güncelle
       if (data.autoDrawEnabled !== undefined) {
-        setAutoDrawEnabled(data.autoDrawEnabled);
+        // Oyun bitmişse, otomatik çekmeyi her zaman kapat
+        if (gameStatus === 'finished' || winners.tombala !== null) {
+          setAutoDrawEnabled(false);
+        } else {
+          setAutoDrawEnabled(data.autoDrawEnabled);
+        }
       }
       
       // Bildirim ekle
@@ -2714,13 +2862,24 @@ export const useTombala = () => {
       console.log('Sayaç güncellendi:', data);
       
       // Eğer oyun bitmişse sayacı güncelleme
-      if (gameStatus === 'finished') {
+      if (gameStatus === 'finished' || winners.tombala !== null) {
         console.log('Oyun bitmiş durumda, sayaç durdu');
         // Oyun bittiği için sayaç değerini sıfırla
         setCountdownTimer(0);
         // Oyun bitti, otomatik çekmeyi de kapat
         if (autoDrawEnabled) {
           setAutoDrawEnabled(false);
+          
+          // Sunucuya otomatik çekmenin kapatıldığını bildir
+          if (socketInstance && socketInstance.connected) {
+            socketInstance.emit(SOCKET_EVENTS.GAME_UPDATE, {
+              lobbyId,
+              isPaused: true,
+              autoDrawEnabled: false,
+              gameStatus: 'finished',
+              timestamp: Date.now()
+            });
+          }
         }
         // Paused durumuna geçir
         if (!isPaused) {
@@ -2738,7 +2897,7 @@ export const useTombala = () => {
       if (data.countdown !== undefined) {
         // Eğer oyun duraklatılmışsa veya bitmişse, sayacı güncelleme 
         // (Duraklatma durumunu önce kontrol ediyoruz çünkü data.isPaused daha güncel)
-        const shouldUpdateTimer = (data.isPaused !== undefined ? !data.isPaused : !isPaused) && gameStatus !== 'finished';
+        const shouldUpdateTimer = (data.isPaused !== undefined ? !data.isPaused : !isPaused) && gameStatus !== 'finished' && !winners.tombala;
         
         if (shouldUpdateTimer) {
           setCountdownTimer(data.countdown);
@@ -2747,22 +2906,22 @@ export const useTombala = () => {
     };
 
     // Olayları dinle
-    socket.on('number_drawn', handleNumberDrawn);
-    socket.on('game_status_changed', handleGameStatusChanged);
-    socket.on('countdown_update', handleCountdownUpdate);
+    socketInstance.on('number_drawn', handleNumberDrawn);
+    socketInstance.on('game_status_changed', handleGameStatusChanged);
+    socketInstance.on('countdown_update', handleCountdownUpdate);
 
     // Bağlantı kurulduğunda sayaç bilgisini iste
     if (lobbyId) {
-      socket.emit('get_countdown', { lobbyId });
+      socketInstance.emit('get_countdown', { lobbyId });
     }
 
     // Temizleme işlevi
     return () => {
-      socket.off('number_drawn', handleNumberDrawn);
-      socket.off('game_status_changed', handleGameStatusChanged);
-      socket.off('countdown_update', handleCountdownUpdate);
+      socketInstance.off('number_drawn', handleNumberDrawn);
+      socketInstance.off('game_status_changed', handleGameStatusChanged);
+      socketInstance.off('countdown_update', handleCountdownUpdate);
     };
-  }, [socket, lobbyId, gameStatus, isPaused, autoDrawEnabled, soundEnabled, playNumberSound, addNotification]);
+  }, [socketInstance, lobbyId, gameStatus, isPaused, autoDrawEnabled, soundEnabled, playNumberSound, addNotification, winners]);
 
   // Hook'un dönüş değeri
   return {
@@ -2799,6 +2958,7 @@ export const useTombala = () => {
     toggleSound,
     playNumberSound,
     drawingNumber, // Sayı çekme işleminin devam edip etmediği (buton devre dışı bırakmak için)
+    setGameStatus, // GameStatus'u değiştirmek için fonksiyonu ekle
   };
 };
 

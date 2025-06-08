@@ -43,87 +43,84 @@ export const saveGameStatus = async (lobbyId, gameState) => {
     localStorage.setItem(localStorageKey, JSON.stringify(localState));
     console.log(`Oyun durumu yerel depolamaya kaydedildi: ${localStorageKey}`);
     
-    // Çevrimiçi modu kontrol et
-    if (!navigator.onLine) {
-      console.log('Cihaz çevrimdışı, sunucuya kaydetme atlandı.');
-      return { 
-        success: true, 
-        local: true, 
-        message: 'Oyun durumu yerel olarak kaydedildi (çevrimdışı mod)' 
-      };
-    }
-    
-    // Sunucuya kaydet
-    try {
-      // Signal kullanarak timeout ekle
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort('Zaman aşımı');
-      }, 10000);
-      
-      console.log('API isteği yapılıyor:', `${API_BASE_URL}/lobbies/status/${lobbyId}`);
-      
-      // Burada API_BASE_URL değerini kontrol et
-      const apiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-        ? '/api' 
-        : API_BASE_URL;
-        
-      // API bağlantı hatası (ERR_CONNECTION_REFUSED) sorunu için try-catch bloğunda yapılandırma
+    // API'ye kaydet - eğer bağlantı varsa
+    if (navigator.onLine) {
       try {
-        const response = await fetch(`${apiUrl}/lobbies/status/${lobbyId}`, {
+        // Doğru endpoint kullan - gameState içinde gameStatus olup olmadığını kontrol et
+        const endpoint = `/api/lobbies/status/${lobbyId}`;
+        
+        // Durumu doğru formatta hazırla - "status" parametresi bekleniyor
+        const statusToSend = gameState.gameStatus || gameState.status || 'playing';
+        
+        console.log(`Oyun durumu API'ye kaydediliyor: ${endpoint}, durum: ${statusToSend}`);
+        
+        // Özel olarak kontrol et - Eğer gameStatus "finished" ise lobi durumunu da finished olarak güncelle
+        if (statusToSend === 'finished' || gameState.gameStatus === 'finished') {
+          console.log('Oyun bitti, lobi durumu "finished" olarak güncelleniyor');
+          
+          // Doğrudan lobby status API'sini çağır
+          const lobbyUpdateResponse = await fetch(`/api/lobbies/${lobbyId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ status: 'finished' })
+          });
+
+          if (!lobbyUpdateResponse.ok) {
+            console.error(`Lobi durumu güncellenirken hata: ${lobbyUpdateResponse.status}`);
+            
+            // Alternatif endpoint'i dene (ID değil kod ile)
+            if (lobbyId.length <= 10) {
+              const altLobbyUpdateResponse = await fetch(`/api/lobbies/code/${lobbyId}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ status: 'finished' })
+              });
+              
+              if (altLobbyUpdateResponse.ok) {
+                console.log('Lobi durumu alternatif endpoint ile güncellendi');
+              }
+            }
+          } else {
+            console.log('Lobi durumu başarıyla güncellendi: finished');
+          }
+        }
+        
+        // Oyun durumu için bir istek daha yap
+        const gameStatusResponse = await fetch(endpoint, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            status: gameState.gameStatus || 'playing',
-            gameData: gameState
-          }),
-          signal: controller.signal,
-          credentials: 'include'
+          body: JSON.stringify({ 
+            status: statusToSend,
+            gameData: {
+              ...gameState,
+              lastUpdated: new Date().toISOString()
+            }
+          })
         });
         
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Oyun durumu sunucuya kaydedildi:', data);
-          return { success: true, data, local: true };
+        if (gameStatusResponse.ok) {
+          console.log('Oyun durumu API\'ye kaydedildi.');
+          return { success: true };
         } else {
-          // 500 Internal Server Error veya diğer sunucu hatalarını sessizce ele al
-          console.warn(`Sunucu kayıt hatası: ${response.status} - yerel duruma geri dönülüyor`);
-          return { 
-            success: true, 
-            local: true, 
-            serverError: true,
-            statusCode: response.status,
-            message: `Sunucu hatası (${response.status}), oyun durumu yalnızca yerel olarak kaydedildi`
-          };
+          console.warn(`Oyun durumu API'ye kaydedilemedi. HTTP Durumu: ${gameStatusResponse.status}`);
+          return { success: false, error: `HTTP Durumu: ${gameStatusResponse.status}` };
         }
-      } catch (networkError) {
-        console.error('API ağ hatası:', networkError);
-        
-        // Bağlantı reddedildi veya sunucuya erişilemedi
-        // Sessizce devam et, yalnızca loglama yap
-        return { 
-          success: true, 
-          local: true, 
-          connectionError: true,
-          message: 'Sunucuya bağlanılamadı, oyun yerel modda devam ediyor'
-        };
+      } catch (error) {
+        console.error('API isteği sırasında hata:', error);
+        return { success: false, error: error.message, localSaved: true };
       }
-    } catch (error) {
-      console.error('Sunucuya kaydetme hatası:', error);
-      // Yerel kaydedildiği için yine de başarılı döndür
-      return { 
-        success: true, 
-        local: true, 
-        error: error.message,
-        message: 'Sunucu hatası, oyun durumu yalnızca yerel olarak kaydedildi'
-      };
+    } else {
+      console.log('Çevrimdışı olduğunuz için oyun durumu sadece yerel olarak kaydedildi.');
+      return { success: true, onlyLocal: true };
     }
   } catch (error) {
-    console.error('Yerel depolama hatası:', error);
+    console.error('Oyun durumu kaydedilemedi:', error);
     return { success: false, error: error.message };
   }
 };

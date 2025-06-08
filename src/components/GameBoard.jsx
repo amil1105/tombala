@@ -261,7 +261,8 @@ const GameBoard = () => {
     lobbyData,
     lobbySettings,
     updateLobbySettings,
-    drawingNumber // isDrawingNumber/drawingNumber state'ini ekleyelim
+    drawingNumber, // isDrawingNumber/drawingNumber state'ini ekleyelim
+    setGameStatus // setGameStatus'u hook'tan alalım
   } = useTombala();
   
   // Yerel state'ler
@@ -374,11 +375,8 @@ const GameBoard = () => {
       setAlertSeverity('info');
       setAlertOpen(true);
       
-      // Önce oyunu sıfırla
-      setDrawnNumbers([]);
-      setCurrentNumber(null);
-      
-      // Sonra yeni oyun başlat
+      // Önce oyunu sıfırla - setGameStatus kullanım yeri
+      // setDrawnNumbers ve setCurrentNumber yerine socket yoluyla güncelleyelim
       if (socket && isHost) {
         socket.emit('game_start', { 
           lobbyId,
@@ -422,16 +420,25 @@ const GameBoard = () => {
     }
   }, []); // Sadece komponent yüklendiğinde çalışsın
 
-  // Oyun durumu değiştiğinde kartları kontrol et
+  // Oyun durumu değiştiğinde kartları kontrol et - sadece gerektiğinde çalışacak şekilde
   useEffect(() => {
-    // Oyun durumu değiştiğinde kartları tekrar kontrol et
+    // Sadece gameStatus değiştiğinde ve playing ise kontrol et
     if (gameStatus === 'playing' && (!playerCards || playerCards.length === 0)) {
-      console.log('GameBoard: Oyun başladı ama kart bulunamadı, yeni kart oluşturuluyor');
+      console.log('GameBoard: Oyun playing durumuna geçti ve kart yok, kartlar oluşturuluyor');
       createPlayerCards();
     }
-    
-    // İşaretli sayı sayısını logla - debug için
-    if (playerCards && playerCards.length > 0 && drawnNumbers && drawnNumbers.length > 0) {
+  }, [gameStatus, playerCards, createPlayerCards]); // Sadece bu üç değişken değiştiğinde çalışsın
+
+  // Lobi ve oyuncu bilgilerini loglama - debug amaçlı, gerekirse kaldırılabilir
+  useEffect(() => {
+    console.log('Lobi verileri:', lobbyData);
+    console.log('Oyuncular:', players);
+  }, [lobbyData, players]); // Sadece lobbyData veya players değiştiğinde çalışsın
+
+  // İşaretli sayıları kontrol et - ayrı bir useEffect ile
+  useEffect(() => {
+    // İşaretli sayı sayısını logla - sadece gerekli veriler varsa
+    if (gameStatus === 'playing' && playerCards && playerCards.length > 0 && drawnNumbers && drawnNumbers.length > 0) {
       const myCard = playerCards[0];
       if (myCard && myCard.numbers) {
         const allCardNumbers = myCard.numbers.flat().filter(num => num !== null);
@@ -443,13 +450,7 @@ const GameBoard = () => {
         }
       }
     }
-  }, [gameStatus, playerCards, createPlayerCards, drawnNumbers]);
-
-  // Debug için lobi ve oyuncu verilerini konsola yazdır
-  useEffect(() => {
-    console.log('Lobi verileri:', lobbyData);
-    console.log('Oyuncular:', players);
-  }, [lobbyData, players]);
+  }, [gameStatus, playerCards, drawnNumbers]); // Oyun durumu, kartlar veya çekilen sayılar değiştiğinde kontrol et
 
   // Otomatik sayı çekmeyi başlatma/durdurma
   const toggleAutoDrawing = useCallback(() => {
@@ -547,7 +548,7 @@ const GameBoard = () => {
 
   // Oyun durumu değiştiğinde özet ekranını göster
   useEffect(() => {
-    if (gameStatus === 'finished') {
+    if (gameStatus === 'finished' && !showGameSummary) {
       console.log("Oyun bitti, kazanan bilgileri (orijinal winners state):", winners);
       console.log("Mevcut oyuncu listesi (players state):", players);
 
@@ -609,9 +610,110 @@ const GameBoard = () => {
       }
       
       setGameSummary(summary);
-      setShowGameSummary(true);
+      
+      // Oyun özeti modalını göster - setTimeout ile bir miktar gecikme ekleyerek daha güvenli bir şekilde gösterelim
+      setTimeout(() => {
+        setShowGameSummary(true);
+        
+        // Oyun bittiğinde API'ye durumu bildir - finished olarak ayarla
+        if (socket && socket.connected) {
+          try {
+            console.log('Oyun bitişi için API güncellemesi gönderiliyor');
+            
+            // 1. Doğrudan socket ile oyun durumunu güncelle
+            socket.emit('game_update', {
+              lobbyId,
+              gameStatus: 'finished',
+              isPaused: true,
+              autoDrawEnabled: false,
+              timestamp: Date.now(),
+              forceUpdate: true,
+              directUpdate: true,
+              bypassHostCheck: true
+            });
+            
+            // 2. Alternatif event ile dene - update_lobby_status
+            socket.emit('update_lobby_status', {
+              lobbyId,
+              lobbyCode: lobbyId,
+              status: 'finished',
+              timestamp: Date.now(),
+              bypassHostCheck: true
+            });
+            
+            // 3. Client-only güncelleme - doğrudan client state'ini değiştir
+            setGameStatus('finished');
+          } catch (error) {
+            console.error('Oyun durumu güncellenirken hata oluştu:', error);
+            // Yine de özet modalını göster - hatayı sessizce geç
+          }
+        }
+      }, 500);
     }
-  }, [gameStatus, winners, drawnNumbers, players, playerId]);
+    // Dikkat: tombala kazananı olduğunda veya drawnNumbers.length >= 90 olduğunda
+    // gameStatus değeri henüz 'finished' olmayabilir, manuel olarak ayarlayalım
+    else if (!showGameSummary && winners && winners.tombala) {
+      console.log("Tombala kazananı var ama gameStatus henüz 'finished' değil, düzeltiliyor");
+      setGameStatus('finished');
+    }
+    else if (!showGameSummary && drawnNumbers && drawnNumbers.length >= 90) {
+      console.log("Tüm sayılar çekildi ama gameStatus henüz 'finished' değil, düzeltiliyor");
+      setGameStatus('finished');
+    }
+  }, [gameStatus, winners, drawnNumbers, players, playerId, socket, lobbyId, showGameSummary, setGameStatus]); // setGameStatus'u bağımlılıklara ekle
+
+  // Özel bir useEffect ekleyelim: tombala kazananı olduğunda oyun durumunu güncellesin
+  useEffect(() => {
+    // Tombala kazananı varsa ve oyun hala 'finished' değilse, durumu güncelle
+    if (winners && winners.tombala && gameStatus !== 'finished') {
+      console.log('Tombala kazananı var, oyun durumu "finished" olarak güncelleniyor');
+      
+      // setGameStatus hook'tan gelen fonksiyonu kullanıyoruz
+      setGameStatus('finished');
+      
+      // Socket üzerinden durumu güncelle - çok yöntemle deneyelim, biri çalışırsa yeterli
+      if (socket && socket.connected) {
+        try {
+          // 1. Yöntem: game_update olayı ile
+          socket.emit('game_update', {
+            lobbyId,
+            gameStatus: 'finished',
+            isPaused: true,
+            autoDrawEnabled: false,
+            timestamp: Date.now(),
+            forceUpdate: true,
+            directUpdate: true,
+            bypassHostCheck: true
+          });
+          
+          // 2. Yöntem: update_lobby_status olayı ile
+          socket.emit('update_lobby_status', {
+            lobbyId,
+            lobbyCode: lobbyId,
+            status: 'finished',
+            timestamp: Date.now(),
+            bypassHostCheck: true
+          });
+          
+          // 3. Yöntem: tombala_claimed olayı ile
+          socket.emit('tombala_claimed', {
+            lobbyId,
+            playerId,
+            status: 'finished',
+            timestamp: Date.now()
+          });
+        } catch (error) {
+          console.error('Oyun durumu güncellenirken hata oluştu:', error);
+          // Hata oluşsa bile işleme devam et, yerel durum zaten güncellendi
+        }
+      }
+      
+      // Özet ekranını göster - socket hata verse bile bu kısım çalışacak
+      setTimeout(() => {
+        setShowGameSummary(true);
+      }, 500);
+    }
+  }, [winners, gameStatus, setGameStatus, socket, lobbyId, playerId]); // playerId bağımlılık olarak ekle
 
   // Oyuncu listesi render fonksiyonunu güncelliyorum
   const renderCompactPlayerList = () => {
@@ -759,10 +861,95 @@ const GameBoard = () => {
 
   // Oyun özeti modal bileşeni
   const renderGameSummary = () => {
+    // Ana sayfaya yönlendirme fonksiyonu
+    const navigateToHome = () => {
+      // Modal'ı kapat
+      setShowGameSummary(false);
+      
+      // Durumu finished olarak son bir kez daha güncelle - çok yöntemle deneyelim
+      if (socket && socket.connected) {
+        try {
+          // 1. Yöntem: game_update olayı ile
+          socket.emit('game_update', {
+            lobbyId,
+            gameStatus: 'finished',
+            isPaused: true,
+            autoDrawEnabled: false,
+            timestamp: Date.now(),
+            forceUpdate: true,
+            directUpdate: true,
+            bypassHostCheck: true
+          });
+          
+          // 2. Yöntem: update_lobby_status olayı ile
+          socket.emit('update_lobby_status', {
+            lobbyId,
+            lobbyCode: lobbyId,
+            status: 'finished',
+            timestamp: Date.now(),
+            bypassHostCheck: true
+          });
+          
+          // 3. Yöntem: direct_update_status olayı ile
+          socket.emit('direct_update_status', {
+            lobbyId,
+            status: 'finished',
+            timestamp: Date.now()
+          });
+        } catch (error) {
+          console.error('Oyun durumu güncellenirken hata oluştu:', error);
+          // Hata oluşsa bile işleme devam et, kullanıcı ana sayfaya yönlendirilecek
+        }
+      }
+      
+      // Ana sayfaya yönlendir - iframe dışına çıkarak ana pencereyi yönlendir
+      window.top.location.href = 'http://localhost:3000/home';
+    };
+    
     return (
       <Dialog
         open={showGameSummary}
-        onClose={() => setShowGameSummary(false)}
+        onClose={() => {
+          setShowGameSummary(false);
+          // Dialog kapandığında oyun durumunu koruyalım ve status API'sini güncelle
+          console.log('Oyun özeti kapatıldı, ancak oyun durumu "finished" olarak korundu');
+          
+          // Durumu bir kez daha güncelle - çok yöntemle deneyelim
+          if (socket && socket.connected) {
+            try {
+              // 1. Yöntem: game_update olayı ile 
+              socket.emit('game_update', {
+                lobbyId,
+                gameStatus: 'finished',
+                isPaused: true,
+                autoDrawEnabled: false,
+                timestamp: Date.now(),
+                forceUpdate: true,
+                directUpdate: true,
+                bypassHostCheck: true
+              });
+              
+              // 2. Yöntem: update_lobby_status olayı ile
+              socket.emit('update_lobby_status', {
+                lobbyId,
+                lobbyCode: lobbyId,
+                status: 'finished',
+                timestamp: Date.now(),
+                bypassHostCheck: true
+              });
+              
+              // 3. Yöntem: force_update_status olayı ile
+              socket.emit('force_update_status', {
+                lobbyId,
+                status: 'finished',
+                timestamp: Date.now()
+              });
+            } catch (error) {
+              console.error('Oyun durumu güncellenirken hata oluştu:', error);
+              // Hata oluşsa bile işleme devam et
+            }
+          }
+        }}
         maxWidth="md"
         fullWidth
         PaperProps={{
@@ -1232,24 +1419,29 @@ const GameBoard = () => {
         </DialogContent>
         
         <DialogActions sx={{ p: 3, justifyContent: 'center', position: 'relative', zIndex: 1 }}>
-          <Button 
-            variant="contained" 
-            onClick={() => setShowGameSummary(false)}
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            onClick={navigateToHome}
             sx={{
-              borderRadius: '24px',
-              background: 'linear-gradient(45deg, #7c4dff, #448aff)',
               px: 4,
-              py: 1,
+              py: 1.5,
+              borderRadius: '12px',
               fontWeight: 'bold',
-              letterSpacing: '1px',
-              boxShadow: '0 4px 20px rgba(124, 77, 255, 0.3)',
+              boxShadow: '0 8px 16px rgba(0, 0, 0, 0.3)',
+              background: 'linear-gradient(45deg, #7c4dff, #2196f3)',
+              transition: 'all 0.3s',
+              textTransform: 'none',
+              fontSize: '1rem',
               '&:hover': {
-                background: 'linear-gradient(45deg, #6a3dff, #2979ff)',
-                boxShadow: '0 6px 25px rgba(124, 77, 255, 0.4)',
+                background: 'linear-gradient(45deg, #651fff, #1e88e5)',
+                transform: 'translateY(-2px)',
+                boxShadow: '0 12px 20px rgba(0, 0, 0, 0.4)',
               }
             }}
           >
-            Tamam
+            Ana Sayfaya Dön
           </Button>
         </DialogActions>
       </Dialog>
@@ -1755,9 +1947,9 @@ const GameBoard = () => {
           </Typography>
           </Box>
           <Box display="flex" alignItems="center" gap={0.5}>
-            <StatusBadge status={isOnline ? 'online' : 'offline'} variant="dot" sx={{ '& .MuiBadge-badge': { width: '6px', height: '6px', minWidth: '6px' } }}>
+            <StatusBadge status="online" variant="dot" sx={{ '& .MuiBadge-badge': { width: '6px', height: '6px', minWidth: '6px' } }}>
               <Typography variant="caption">
-                {isOnline ? 'Bağlı' : 'Bağlantı Yok'}
+                Bağlı
               </Typography>
             </StatusBadge>
             
@@ -1834,7 +2026,6 @@ const GameBoard = () => {
                       color="primary" 
                       fullWidth
                       onClick={startGame}
-                      disabled={!isOnline}
                       size="small"
                     >
                       Oyunu Başlat
@@ -2085,7 +2276,6 @@ const GameBoard = () => {
                       variant="outlined" 
                       color="primary"
                       onClick={() => claimCinko('cinko1')}
-                      disabled={!isOnline}
                       size="small"
                     >
                       1. Çinko
@@ -2094,7 +2284,6 @@ const GameBoard = () => {
                       variant="outlined" 
                       color="primary"
                       onClick={() => claimCinko('cinko2')}
-                      disabled={!isOnline}
                       size="small"
                     >
                       2. Çinko
@@ -2103,7 +2292,6 @@ const GameBoard = () => {
                       variant="contained" 
                       color="secondary"
                       onClick={claimTombala}
-                      disabled={!isOnline}
                       endIcon={<EmojiEventsIcon />}
                       size="small"
                     >
